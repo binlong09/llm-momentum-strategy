@@ -8,12 +8,24 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 from loguru import logger
 import yfinance as yf
+import os
+
+
+def get_default_history_dir():
+    """Get default history directory based on environment."""
+    # Use persistent storage on Streamlit Cloud
+    if os.getenv("STREAMLIT_RUNTIME_ENV") == "cloud":
+        return "/mount/.streamlit/monitoring"
+    return "results/monitoring"
 
 
 class PortfolioTracker:
     """Track portfolio value and holdings over time."""
 
-    def __init__(self, history_dir: str = "results/monitoring"):
+    def __init__(self, history_dir: str = None):
+        if history_dir is None:
+            history_dir = get_default_history_dir()
+
         self.history_dir = Path(history_dir)
         self.history_dir.mkdir(parents=True, exist_ok=True)
         self.snapshots_file = self.history_dir / "portfolio_snapshots.csv"
