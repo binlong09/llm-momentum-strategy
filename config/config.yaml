@@ -1,0 +1,77 @@
+# Strategy Configuration
+# Based on optimal parameters from paper validation
+
+strategy:
+    # Universe
+    universe: "SP500"
+
+    # Momentum Signal
+    momentum_lookback_months: 12
+    momentum_exclude_recent_month: true
+
+    # Portfolio Construction
+    rebalancing_frequency: "monthly" # "daily", "weekly", or "monthly"
+    top_percentile: 0.20 # Top 20% (two deciles) for LLM scoring. change to 0.40  for 200 stocks.
+    final_portfolio_size: 50 # Number of stocks in final portfolio
+
+    # Weighting
+    initial_weighting: "value" # "equal" or "value"
+    max_position_weight: 0.15 # 15% maximum per stock
+    weight_tilt_factor: 5.0 # η parameter for LLM score tilting
+
+    # LLM Configuration
+    llm:
+        news_lookback_days: 5 # Enhanced: 3-7 days for better context
+        forecast_horizon_days: 21 # Monthly rebalancing
+        prompt_type: "basic" # "basic" or "advanced"
+        score_range: [0, 1] # Will be normalized to [-1, 1]
+        batch_size: 10 # Process stocks in batches to manage rate limits
+        max_retries: 3 # Retry failed LLM calls
+        timeout_seconds: 30 # Timeout for each LLM call
+
+    # Transaction Costs
+    transaction_cost_bps: 2 # 2 basis points per trade
+
+# Backtesting Configuration
+backtesting:
+    validation_start: "2019-10-01"
+    validation_end: "2023-12-31"
+    test_start: "2024-01-01"
+    test_end: "2025-03-31"
+
+    # Performance metrics to track
+    metrics:
+        - "sharpe_ratio"
+        - "sortino_ratio"
+        - "annual_return"
+        - "volatility"
+        - "max_drawdown"
+        - "calmar_ratio"
+        - "turnover"
+
+# Data Sources
+data_sources:
+    # Primary price data
+    price_data: "yfinance" # "alpha_vantage" or "yfinance"
+
+    # News sources (multiple can be enabled)
+    news_sources:
+        rss_feeds: true
+        newsapi: false # Set to true if you have NewsAPI key
+        alpha_vantage_sentiment: true # Use AV's NEWS_SENTIMENT function
+
+    # Risk-free rate
+    risk_free_rate_source: "fred" # Federal Reserve Economic Data
+
+# Caching
+cache:
+    enabled: true
+    cache_dir: "data/raw"
+    price_cache_days: 1 # Refresh price data daily
+    news_cache_hours: 6 # Refresh news every 6 hours
+
+# Logging
+logging:
+    level: "INFO" # DEBUG, INFO, WARNING, ERROR
+    log_file: "logs/strategy.log"
+    console_output: true

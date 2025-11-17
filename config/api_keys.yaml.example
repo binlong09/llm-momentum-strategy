@@ -1,0 +1,26 @@
+# API Keys Configuration
+# Copy this file to api_keys.yaml and fill in your actual keys
+# DO NOT commit api_keys.yaml to version control!
+
+# Alpha Vantage API Key
+# Get free key at: https://www.alphavantage.co/support/#api-key
+alpha_vantage:
+  api_key: "YOUR_ALPHA_VANTAGE_KEY_HERE"
+
+# OpenAI API Key
+# Get key at: https://platform.openai.com/api-keys
+openai:
+  api_key: "YOUR_OPENAI_KEY_HERE"
+  model: "gpt-4o-mini"  # or "gpt-4-turbo" for better quality
+
+# NewsAPI Key (Optional - Free tier: 100 requests/day)
+# Get key at: https://newsapi.org/register
+newsapi:
+  api_key: "YOUR_NEWSAPI_KEY_HERE"
+  enabled: false  # Set to true if you want to use NewsAPI
+
+# Rate Limiting
+rate_limits:
+  alpha_vantage_calls_per_minute: 5  # Free tier: ~5 calls/min to stay under 25/day
+  openai_calls_per_minute: 60
+  newsapi_calls_per_day: 100

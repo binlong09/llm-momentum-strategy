@@ -1,0 +1,62 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+.venv
+
+# API Keys & Secrets - IMPORTANT!
+config/api_keys.yaml
+.streamlit/secrets.toml
+.env
+
+# Portfolio Data - PERSONAL INFORMATION
+results/monitoring/
+results/portfolios/
+results/exports/
+*.csv
+!requirements.txt
+
+# Backtest & Analysis Results
+results/backtest/
+results/backtests/
+results/plots/
+results/visualizations/
+
+# Data
+data/
+!data/.gitkeep
+
+# Logs
+logs/
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Cache
+*.cache
+.pytest_cache/
+
+# Documentation (keep in repo but could be moved to docs/)
+# Uncomment if you want to exclude docs:
+# docs/
+# *.md
+# !README.md
+# !STREAMLIT_DEPLOYMENT.md
