@@ -27,9 +27,9 @@ results/backtests/
 results/plots/
 results/visualizations/
 
-# Data
-data/
-!data/.gitkeep
+# Data (root directory only, not src/data/)
+/data/
+!/data/.gitkeep
 
 # Logs
 logs/
