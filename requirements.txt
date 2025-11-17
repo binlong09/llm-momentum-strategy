@@ -40,3 +40,4 @@ html5lib>=1.1
 # Optional: Jupyter for analysis
 jupyter>=1.0.0
 ipykernel>=6.25.0
+extra-streamlit-components>=0.1.56
