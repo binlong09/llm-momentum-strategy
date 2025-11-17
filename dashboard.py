@@ -25,6 +25,11 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# Authentication (production only - disabled for local development)
+from auth import check_authentication, add_logout_button
+if not check_authentication():
+    st.stop()  # Stop execution if not authenticated
+
 # Custom CSS for better styling
 st.markdown("""
 <style>
@@ -77,6 +82,9 @@ try:
             st.sidebar.info("Upload portfolio to see stats")
 except:
     st.sidebar.info("Upload portfolio to see stats")
+
+# Add logout button (production only)
+add_logout_button()
 
 # ============================================================
 # PAGE 1: OVERVIEW
