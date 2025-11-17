@@ -73,19 +73,43 @@ If news is insufficient or mostly positive, score should be low (0.0-0.3).
         """
         self.model = model
 
-        # Load API key from config file (same as LLMScorer)
-        import yaml
+        # Load API key - try multiple sources
+        api_key = None
+
+        # 1. Try Streamlit secrets (for deployed apps)
         try:
-            with open(api_keys_path, 'r') as f:
-                api_keys = yaml.safe_load(f)
-            api_key = api_keys.get('openai', {}).get('api_key')
-            if not api_key:
-                raise ValueError("OpenAI API key not found in config/api_keys.yaml")
-        except FileNotFoundError:
-            # Fallback to environment variable
-            api_key = os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                raise ValueError("OpenAI API key not found in config/api_keys.yaml or OPENAI_API_KEY environment variable")
+            import streamlit as st
+            if hasattr(st, 'secrets') and 'openai' in st.secrets:
+                api_key = st.secrets['openai'].get('api_key')
+                logger.info("Using OpenAI API key from Streamlit secrets")
+        except:
+            pass
+
+        # 2. Try environment variable
+        if not api_key:
+            api_key = os.getenv('OPENAI_API_KEY')
+            if api_key:
+                logger.info("Using OpenAI API key from environment variable")
+
+        # 3. Try config file
+        if not api_key:
+            import yaml
+            try:
+                with open(api_keys_path, 'r') as f:
+                    api_keys = yaml.safe_load(f)
+                api_key = api_keys.get('openai', {}).get('api_key')
+                if api_key:
+                    logger.info("Using OpenAI API key from config file")
+            except FileNotFoundError:
+                pass
+
+        if not api_key:
+            raise ValueError(
+                "OpenAI API key not found. Please set it in:\n"
+                "  1. Streamlit Cloud: Add to secrets as [openai] api_key = \"sk-...\"\n"
+                "  2. Environment: export OPENAI_API_KEY='sk-...'\n"
+                "  3. Config file: config/api_keys.yaml"
+            )
 
         self.client = OpenAI(api_key=api_key)
         logger.info(f"LLMRiskScorer initialized with model: {model}")
