@@ -53,9 +53,37 @@ class LLMScorer:
         self.score_range = llm_config.get('score_range', [0, 1])
 
         # Initialize OpenAI client
-        api_key = self.api_keys.get('openai', {}).get('api_key')
+        # Try multiple sources for API key: Streamlit secrets, env vars, then config file
+        api_key = None
+
+        # 1. Try Streamlit secrets (for deployed apps)
+        try:
+            import streamlit as st
+            if hasattr(st, 'secrets') and 'openai' in st.secrets:
+                api_key = st.secrets['openai'].get('api_key')
+                logger.info("Using OpenAI API key from Streamlit secrets")
+        except:
+            pass
+
+        # 2. Try environment variable
         if not api_key:
-            raise ValueError("OpenAI API key not found in config/api_keys.yaml")
+            api_key = os.getenv('OPENAI_API_KEY')
+            if api_key:
+                logger.info("Using OpenAI API key from environment variable")
+
+        # 3. Try config file
+        if not api_key:
+            api_key = self.api_keys.get('openai', {}).get('api_key')
+            if api_key:
+                logger.info("Using OpenAI API key from config file")
+
+        if not api_key:
+            raise ValueError(
+                "OpenAI API key not found. Please set it in:\n"
+                "  1. Streamlit Cloud: Add to secrets as [openai] api_key = \"sk-...\"\n"
+                "  2. Environment: export OPENAI_API_KEY='sk-...'\n"
+                "  3. Config file: config/api_keys.yaml"
+            )
 
         self.client = OpenAI(api_key=api_key)
 
