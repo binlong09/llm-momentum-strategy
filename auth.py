@@ -11,11 +11,10 @@ from datetime import datetime, timedelta
 import extra_streamlit_components as stx
 
 
-# Cookie manager singleton
-@st.cache_resource
 def get_cookie_manager():
-    """Get cookie manager instance (cached)"""
-    return stx.CookieManager()
+    """Get cookie manager instance"""
+    # Initialize cookie manager with a unique key
+    return stx.CookieManager(key="auth_cookie_manager")
 
 
 def is_production():
