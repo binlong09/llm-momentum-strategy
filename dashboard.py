@@ -647,6 +647,1404 @@ elif page == "📊 Daily Monitor":
             st.info(f"Need at least 2 snapshots to calculate performance. Current: {len(snapshots_df)}")
             st.caption("Upload your portfolio daily to track performance over time.")
 
+        # Technical Indicators Dashboard
+        st.markdown("---")
+        st.subheader("📊 Technical Momentum Indicators")
+
+        if st.button("🔍 Analyze Technical Signals", type="primary"):
+            with st.spinner("Analyzing technical indicators..."):
+                try:
+                    from src.data import DataManager
+                    from src.analysis import analyze_stock_technicals
+
+                    dm = DataManager()
+                    top_symbols = holdings_df.nlargest(15, 'current_value')['symbol'].tolist() if 'current_value' in holdings_df.columns else holdings_df['symbol'].tolist()[:15]
+                    price_data = dm.get_prices(top_symbols, use_cache=True, show_progress=False)
+
+                    # Analyze all stocks
+                    technical_results = []
+                    for symbol in top_symbols:
+                        if symbol in price_data and not price_data[symbol].empty:
+                            tech = analyze_stock_technicals(price_data[symbol])
+                            if tech:
+                                weight = holdings_df[holdings_df['symbol'] == symbol]['current_weight'].iloc[0] * 100 if 'current_weight' in holdings_df.columns else 0
+                                tech['symbol'] = symbol
+                                tech['weight'] = weight
+                                technical_results.append(tech)
+
+                    # Store in session state
+                    st.session_state.technical_results = technical_results
+
+                    st.success("✅ Technical analysis complete!")
+
+                except Exception as e:
+                    st.error(f"Error analyzing technicals: {e}")
+
+        # Display technical results
+        if 'technical_results' in st.session_state:
+            tech_results = st.session_state.technical_results
+
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+
+            overbought = [t for t in tech_results if t.get('rsi_signal') == 'OVERBOUGHT']
+            oversold = [t for t in tech_results if t.get('rsi_signal') == 'OVERSOLD']
+            decelerating = [t for t in tech_results if t.get('momentum', {}).get('status') == 'DECELERATING']
+            death_cross = [t for t in tech_results if t.get('moving_averages', {}).get('ma_cross') == 'DEATH_CROSS']
+
+            with col1:
+                st.metric("Overbought (RSI>70)", len(overbought))
+                if len(overbought) > 0:
+                    st.caption("⚠️ May pullback")
+
+            with col2:
+                st.metric("Oversold (RSI<30)", len(oversold))
+                if len(oversold) > 0:
+                    st.caption("💡 Potential reversal")
+
+            with col3:
+                st.metric("Decelerating", len(decelerating))
+                if len(decelerating) > 0:
+                    st.caption("📉 Momentum slowing")
+
+            with col4:
+                st.metric("Death Crosses", len(death_cross))
+                if len(death_cross) > 0:
+                    st.caption("☠️ Major bearish")
+
+            # Detailed breakdown
+            with st.expander("📋 Detailed Technical Signals", expanded=True):
+
+                # Critical warnings
+                if death_cross:
+                    st.error(f"☠️ **DEATH CROSS DETECTED** - {len(death_cross)} stock(s)")
+                    for tech in death_cross:
+                        st.markdown(f"**{tech['symbol']}** ({tech['weight']:.1f}% of portfolio)")
+                        st.caption("50-day MA crossed below 200-day MA - Major bearish signal")
+                        st.markdown("---")
+
+                # Decelerating momentum warnings
+                if decelerating:
+                    st.warning(f"📉 **MOMENTUM DECELERATING** - {len(decelerating)} stock(s)")
+                    for tech in sorted(decelerating, key=lambda x: x.get('momentum', {}).get('acceleration', 0)):
+                        mom = tech.get('momentum', {})
+                        st.markdown(f"**{tech['symbol']}** ({tech['weight']:.1f}%): Momentum slowing {mom.get('acceleration', 0):.2f}%")
+                        st.caption(f"Current week: {mom.get('current_week_return', 0):+.2f}%, Prev week: {mom.get('prev_week_return', 0):+.2f}%")
+                    st.markdown("---")
+
+                # Overbought warnings
+                if overbought:
+                    st.warning(f"⚠️ **OVERBOUGHT STOCKS** - {len(overbought)} stock(s)")
+                    for tech in sorted(overbought, key=lambda x: x.get('rsi', 0), reverse=True):
+                        rsi = tech.get('rsi', 0)
+                        mom_status = tech.get('momentum', {}).get('status', 'N/A')
+                        st.markdown(f"**{tech['symbol']}** ({tech['weight']:.1f}%): RSI {rsi:.1f}")
+                        st.caption(f"Momentum: {mom_status}")
+                    st.markdown("---")
+
+                # All stocks table
+                st.markdown("### 📊 Full Technical Summary")
+
+                tech_df = pd.DataFrame([
+                    {
+                        'Symbol': t['symbol'],
+                        'Weight%': f"{t['weight']:.1f}%",
+                        'RSI': f"{t.get('rsi', 0):.1f}" if 'rsi' in t else 'N/A',
+                        'RSI Signal': t.get('rsi_signal', 'N/A'),
+                        'Mom Status': t.get('momentum', {}).get('status', 'N/A'),
+                        'Mom Accel': f"{t.get('momentum', {}).get('acceleration', 0):+.2f}%" if 'momentum' in t else 'N/A',
+                        'MA Cross': t.get('moving_averages', {}).get('ma_cross', 'N/A') if 'moving_averages' in t else 'N/A',
+                        'Trend': t.get('moving_averages', {}).get('trend', 'N/A') if 'moving_averages' in t else 'N/A'
+                    }
+                    for t in tech_results
+                ])
+
+                st.dataframe(tech_df, use_container_width=True, hide_index=True)
+
+            # Action items
+            if death_cross or (len(decelerating) >= 3) or (len(overbought) >= 3):
+                st.markdown("### 🎯 Technical Action Items")
+
+                if death_cross:
+                    st.error(f"🚨 **URGENT**: {len(death_cross)} death cross(es) detected - Consider exiting these positions")
+
+                if len(decelerating) >= 3:
+                    st.warning(f"⚠️ **CAUTION**: {len(decelerating)} stocks losing momentum - Monitor closely")
+
+                if len(overbought) >= 3:
+                    st.info(f"💡 **INFO**: {len(overbought)} overbought stocks - Consider taking some profits")
+
+        # Sector Intelligence Dashboard
+        st.markdown("---")
+        st.subheader("🎯 Sector Intelligence")
+
+        if st.button("📊 Analyze Sector Exposure", type="primary"):
+            with st.spinner("Analyzing sector allocation..."):
+                try:
+                    from src.data import DataManager
+                    from src.analysis import (
+                        analyze_sector_concentration,
+                        analyze_sector_momentum,
+                        detect_sector_rotation,
+                        generate_sector_recommendations
+                    )
+
+                    dm = DataManager()
+
+                    # Sector concentration
+                    concentration = analyze_sector_concentration(holdings_df)
+
+                    # Sector momentum
+                    symbols = holdings_df['symbol'].tolist()
+                    price_data = dm.get_prices(symbols, use_cache=True, show_progress=False)
+                    momentum = analyze_sector_momentum(holdings_df, price_data)
+
+                    # Sector rotation
+                    rotation = detect_sector_rotation(momentum)
+
+                    # Recommendations
+                    recommendations = generate_sector_recommendations(concentration, momentum, rotation)
+
+                    # Store in session state
+                    st.session_state.sector_analysis = {
+                        'concentration': concentration,
+                        'momentum': momentum,
+                        'rotation': rotation,
+                        'recommendations': recommendations
+                    }
+
+                    st.success("✅ Sector analysis complete!")
+
+                except Exception as e:
+                    st.error(f"Error analyzing sectors: {e}")
+                    import traceback
+                    with st.expander("View error details"):
+                        st.code(traceback.format_exc())
+
+        # Display sector results
+        if 'sector_analysis' in st.session_state:
+            sector_data = st.session_state.sector_analysis
+            concentration = sector_data.get('concentration', {})
+            momentum = sector_data.get('momentum', {})
+            rotation = sector_data.get('rotation', {})
+            recommendations = sector_data.get('recommendations', [])
+
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                st.metric("Top Sector", concentration.get('top_sector', 'N/A'))
+                st.caption(f"{concentration.get('top_sector_weight', 0):.1f}% of portfolio")
+
+            with col2:
+                st.metric("Diversification", f"{concentration.get('diversification_score', 0):.0f}/100")
+                if concentration.get('diversification_score', 0) < 50:
+                    st.caption("⚠️ Low diversity")
+                else:
+                    st.caption("✅ Well diversified")
+
+            with col3:
+                st.metric("# Sectors", concentration.get('num_sectors', 0))
+                st.caption(f"{concentration.get('concentration_level', 'N/A')} concentration")
+
+            with col4:
+                if momentum and 'momentum_spread' in momentum:
+                    st.metric("Sector Spread", f"{momentum.get('momentum_spread', 0):.1f}%")
+                    st.caption("Leader vs Laggard")
+                else:
+                    st.metric("Sector Spread", "N/A")
+
+            # Sector breakdown
+            with st.expander("📊 Sector Breakdown", expanded=True):
+
+                if concentration and 'sector_weights' in concentration:
+                    sector_weights = concentration['sector_weights']
+
+                    # Sector table
+                    sector_df_data = []
+                    for sector, weight in sorted(sector_weights.items(), key=lambda x: x[1], reverse=True):
+                        # Get momentum if available
+                        sector_mom = 'N/A'
+                        if momentum and 'sector_momentum' in momentum:
+                            if sector in momentum['sector_momentum']:
+                                sector_mom = f"{momentum['sector_momentum'][sector]['momentum']:+.1f}%"
+
+                        sector_df_data.append({
+                            'Sector': sector,
+                            'Weight': f"{weight:.1f}%",
+                            '1-Month Momentum': sector_mom,
+                            'Status': '⚠️ Overweight' if weight > 30 else '✅ Normal' if weight > 5 else 'ℹ️ Underweight'
+                        })
+
+                    sector_df = pd.DataFrame(sector_df_data)
+                    st.dataframe(sector_df, use_container_width=True, hide_index=True)
+
+                    # Pie chart
+                    import plotly.graph_objects as go
+
+                    fig = go.Figure(data=[go.Pie(
+                        labels=list(sector_weights.keys()),
+                        values=list(sector_weights.values()),
+                        hole=0.3
+                    )])
+                    fig.update_layout(
+                        title="Portfolio Sector Allocation",
+                        height=400
+                    )
+                    st.plotly_chart(fig, use_container_width=True)
+
+            # Sector momentum
+            if momentum and 'sector_momentum' in momentum:
+                with st.expander("🚀 Sector Momentum Rankings", expanded=False):
+                    sector_mom = momentum['sector_momentum']
+
+                    # Leaders
+                    st.markdown("### 📈 Leading Sectors")
+                    leaders = sorted(sector_mom.items(), key=lambda x: x[1]['momentum'], reverse=True)[:3]
+                    for sector, data in leaders:
+                        st.markdown(f"**{sector}**: {data['momentum']:+.1f}% momentum ({data['weight']:.1f}% of your portfolio)")
+
+                    st.markdown("---")
+
+                    # Laggards
+                    st.markdown("### 📉 Lagging Sectors")
+                    laggards = sorted(sector_mom.items(), key=lambda x: x[1]['momentum'])[:3]
+                    for sector, data in laggards:
+                        st.markdown(f"**{sector}**: {data['momentum']:+.1f}% momentum ({data['weight']:.1f}% of your portfolio)")
+
+            # Rotation detection
+            if rotation and rotation.get('rotation_detected'):
+                st.warning(f"🔄 **SECTOR ROTATION DETECTED**: {rotation.get('rotation_description')}")
+
+            # Recommendations
+            st.markdown("### 🎯 Sector Recommendations")
+            for rec in recommendations:
+                if '⚠️' in rec or '🚨' in rec:
+                    st.warning(rec)
+                elif '💡' in rec or 'ℹ️' in rec:
+                    st.info(rec)
+                elif '📉' in rec or '🔄' in rec:
+                    st.warning(rec)
+                else:
+                    st.success(rec)
+
+        # AI Portfolio Optimizer
+        st.markdown("---")
+        st.subheader("🤖 AI Portfolio Optimizer")
+        st.markdown("Get a definitive rebalancing recommendation based on ALL available signals")
+
+        # Cost warning
+        estimated_cost = len(holdings_df) * 0.00066
+        st.caption(f"💰 Note: First run will analyze all stocks (~${estimated_cost:.3f} using gpt-4o-mini)")
+
+        if st.button("🎯 Should I Rebalance?", type="primary", use_container_width=True):
+            try:
+                from src.optimization import PortfolioOptimizer
+                from src.data import DataManager
+                from src.llm import LLMScorer, LLMRiskScorer
+
+                # Check if we need to run batch analysis first
+                need_batch_analysis = 'batch_analysis_results' not in st.session_state
+
+                if need_batch_analysis:
+                    with st.spinner(f"🔬 Running AI analysis on {len(holdings_df)} stocks first... This will take ~{len(holdings_df) * 3} seconds..."):
+                        dm = DataManager()
+                        llm_scorer = LLMScorer(model="gpt-4o-mini")
+                        risk_scorer = LLMRiskScorer(model="gpt-4o-mini")
+
+                        # Initialize results storage
+                        batch_results = []
+                        symbols = holdings_df['symbol'].tolist()
+
+                        # Progress tracking
+                        progress_bar = st.progress(0)
+                        status_text = st.empty()
+
+                        for idx, symbol in enumerate(symbols):
+                            status_text.text(f"Analyzing {symbol} ({idx+1}/{len(symbols)})...")
+
+                            result = {
+                                'symbol': symbol,
+                                'current_value': holdings_df[holdings_df['symbol'] == symbol]['current_value'].iloc[0] if 'current_value' in holdings_df.columns else None,
+                                'current_weight': holdings_df[holdings_df['symbol'] == symbol]['current_weight'].iloc[0] * 100 if 'current_weight' in holdings_df.columns else None,
+                                'price_change_pct': holdings_df[holdings_df['symbol'] == symbol]['price_change_pct'].iloc[0] if 'price_change_pct' in holdings_df.columns else None,
+                            }
+
+                            try:
+                                # Fetch data
+                                price_data = dm.get_prices([symbol], use_cache=True, show_progress=False)
+                                news_articles = dm.get_news([symbol], lookback_days=5, use_cache=True).get(symbol, [])
+                                earnings_data = dm.get_earnings_for_symbol(symbol, use_cache=True)
+                                analyst_data = dm.get_analyst_data_for_symbol(symbol, use_cache=True)
+
+                                # Calculate momentum
+                                momentum_return = None
+                                if symbol in price_data and not price_data[symbol].empty:
+                                    prices = price_data[symbol]
+                                    if 'adjusted_close' in prices.columns and len(prices) >= 252:
+                                        start_price = prices['adjusted_close'].iloc[-252]
+                                        end_price = prices['adjusted_close'].iloc[-1]
+                                        momentum_return = (end_price / start_price) - 1
+
+                                # LLM Sentiment Analysis
+                                try:
+                                    from src.llm.prompts import PromptTemplate
+                                    news_summary = PromptTemplate.format_news_for_prompt(
+                                        news_articles,
+                                        max_articles=20,
+                                        max_chars=3000,
+                                        prioritize_important=True
+                                    )
+
+                                    llm_result = llm_scorer.score_stock(
+                                        symbol=symbol,
+                                        news_summary=news_summary,
+                                        momentum_return=momentum_return,
+                                        earnings_data=earnings_data,
+                                        analyst_data=analyst_data,
+                                        return_prompt=False
+                                    )
+                                    result['sentiment_score'] = llm_result[1]  # normalized_score
+                                except Exception as e:
+                                    result['sentiment_score'] = None
+                                    result['sentiment_error'] = str(e)
+
+                                # Risk Assessment
+                                try:
+                                    risk_result = risk_scorer.score_stock_risk(
+                                        symbol=symbol,
+                                        news_articles=news_articles,
+                                        max_articles=10,
+                                        return_prompt=False
+                                    )
+                                    result['risk_score'] = risk_result['overall_risk_score']
+                                    result['key_risk'] = risk_result.get('key_risk', 'None')
+                                    result['risk_recommendation'] = risk_result.get('recommendation', 'N/A')
+                                except Exception as e:
+                                    result['risk_score'] = None
+                                    result['risk_error'] = str(e)
+
+                                result['status'] = 'success'
+
+                            except Exception as e:
+                                result['status'] = 'error'
+                                result['error'] = str(e)
+
+                            batch_results.append(result)
+                            progress_bar.progress((idx + 1) / len(symbols))
+
+                        # Store results in session state
+                        st.session_state.batch_analysis_results = batch_results
+
+                        status_text.text("✅ Stock analysis complete!")
+                        progress_bar.empty()
+
+                with st.spinner("🎯 Generating rebalancing recommendation..."):
+                    # Gather all signals
+                    market_signals = {}
+                    portfolio_metrics = {}
+                    technical_signals_data = {}
+                    sector_data = {}
+                    batch_data = {}
+
+                    # Market signals (if available from context building)
+                    # We'll extract from session state if available
+
+                    # Portfolio metrics
+                    if daily_change:
+                        portfolio_metrics['daily_change_pct'] = daily_change.get('change_pct', 0)
+
+                    if 'current_weight' in holdings_df.columns:
+                        top3 = holdings_df.nlargest(3, 'current_value')['current_weight'].sum() * 100
+                        portfolio_metrics['top3_concentration'] = top3
+
+                    # Technical signals
+                    if 'technical_results' in st.session_state:
+                        tech = st.session_state.technical_results
+                        technical_signals_data['death_crosses'] = [t['symbol'] for t in tech if t.get('moving_averages', {}).get('ma_cross') == 'DEATH_CROSS']
+                        technical_signals_data['golden_crosses'] = [t['symbol'] for t in tech if t.get('moving_averages', {}).get('ma_cross') == 'GOLDEN_CROSS']
+                        technical_signals_data['overbought'] = [t['symbol'] for t in tech if t.get('rsi_signal') == 'OVERBOUGHT']
+                        technical_signals_data['oversold'] = [t['symbol'] for t in tech if t.get('rsi_signal') == 'OVERSOLD']
+                        technical_signals_data['decelerating'] = [t['symbol'] for t in tech if t.get('momentum', {}).get('status') == 'DECELERATING']
+                        technical_signals_data['accelerating'] = [t['symbol'] for t in tech if t.get('momentum', {}).get('status') == 'ACCELERATING']
+
+                    # Sector analysis
+                    if 'sector_analysis' in st.session_state:
+                        sector_data = st.session_state.sector_analysis
+
+                    # Batch analysis (now guaranteed to exist)
+                    if 'batch_analysis_results' in st.session_state:
+                        batch_results = st.session_state.batch_analysis_results
+                        batch_df = pd.DataFrame(batch_results)
+                        batch_data['avg_sentiment'] = batch_df['sentiment_score'].mean() if 'sentiment_score' in batch_df else None
+                        batch_data['avg_risk'] = batch_df['risk_score'].mean() if 'risk_score' in batch_df else None
+                        batch_data['high_risk_count'] = len(batch_df[batch_df['risk_score'] > 0.7]) if 'risk_score' in batch_df else 0
+                        batch_data['bearish_count'] = len(batch_df[batch_df['sentiment_score'] < 0.4]) if 'sentiment_score' in batch_df else 0
+                        batch_data['results'] = batch_results
+
+                    # Run optimizer
+                    optimizer = PortfolioOptimizer()
+                    result = optimizer.analyze_all_signals(
+                        market_signals=market_signals,
+                        portfolio_metrics=portfolio_metrics,
+                        technical_signals=technical_signals_data,
+                        sector_analysis=sector_data,
+                        batch_analysis=batch_data,
+                        holdings_df=holdings_df
+                    )
+
+                    # Store result
+                    st.session_state.optimizer_result = result
+
+                    st.success("✅ Analysis complete! Recommendation ready below.")
+
+            except Exception as e:
+                st.error(f"Error running optimizer: {e}")
+                import traceback
+                with st.expander("View error details"):
+                    st.code(traceback.format_exc())
+
+        # Display optimizer results
+        if 'optimizer_result' in st.session_state:
+            result = st.session_state.optimizer_result
+
+            recommendation = result['recommendation']
+            confidence = result['confidence']
+            overall_score = result['overall_score']
+            reasoning = result['reasoning']
+            stock_actions = result['stock_actions']
+
+            # Main recommendation card
+            st.markdown("---")
+
+            if recommendation == "REBALANCE_NOW":
+                st.error(f"### 🚨 RECOMMENDATION: REBALANCE NOW")
+                st.error(f"**Confidence: {confidence}%**")
+                st.markdown("**Action:** Execute rebalancing at your earliest convenience (today/tomorrow)")
+            elif recommendation == "CONSIDER_REBALANCING":
+                st.warning(f"### ⚠️ RECOMMENDATION: CONSIDER REBALANCING")
+                st.warning(f"**Confidence: {confidence}%**")
+                st.markdown("**Action:** Review carefully, lean towards rebalancing within next few days")
+            elif recommendation == "MONITOR_CLOSELY":
+                st.info(f"### 👀 RECOMMENDATION: MONITOR CLOSELY")
+                st.info(f"**Confidence: {confidence}%**")
+                st.markdown("**Action:** Check daily for changes, be ready to act if signals worsen")
+            else:  # WAIT
+                st.success(f"### ✅ RECOMMENDATION: WAIT FOR MONTHLY REBALANCE")
+                st.success(f"**Confidence: {confidence}%**")
+                st.markdown("**Action:** Stay the course, check back in a week")
+
+            # Overall health score
+            st.markdown(f"**Portfolio Health Score: {overall_score:.1f}/100**")
+
+            # Progress bar for visual
+            if overall_score < 40:
+                st.progress(overall_score / 100, text="Poor Health")
+            elif overall_score < 60:
+                st.progress(overall_score / 100, text="Fair Health")
+            else:
+                st.progress(overall_score / 100, text="Good Health")
+
+            # Detailed reasoning
+            with st.expander("📊 Detailed Analysis", expanded=True):
+                for line in reasoning:
+                    st.markdown(line)
+
+            # Stock-specific actions
+            if stock_actions:
+                st.markdown("---")
+                st.markdown("### 📋 Stock-Specific Actions")
+
+                # Group by action
+                exit_stocks = {k: v for k, v in stock_actions.items() if v['action'] == 'EXIT'}
+                reduce_stocks = {k: v for k, v in stock_actions.items() if v['action'] == 'REDUCE'}
+                monitor_stocks = {k: v for k, v in stock_actions.items() if v['action'] == 'MONITOR'}
+
+                if exit_stocks:
+                    st.error(f"**🚨 EXIT ({len(exit_stocks)} stock(s)):**")
+                    for symbol, data in sorted(exit_stocks.items(), key=lambda x: x[1]['confidence'], reverse=True):
+                        st.markdown(f"**{symbol}** (confidence: {data['confidence']}%)")
+                        for reason in data['reasons']:
+                            st.markdown(f"  - {reason}")
+
+                if reduce_stocks:
+                    st.warning(f"**⚠️ REDUCE ({len(reduce_stocks)} stock(s)):**")
+                    for symbol, data in sorted(reduce_stocks.items(), key=lambda x: x[1]['confidence'], reverse=True):
+                        st.markdown(f"**{symbol}** (confidence: {data['confidence']}%)")
+                        for reason in data['reasons']:
+                            st.markdown(f"  - {reason}")
+
+                if monitor_stocks:
+                    st.info(f"**👀 MONITOR ({len(monitor_stocks)} stock(s)):**")
+                    for symbol, data in list(monitor_stocks.items())[:5]:  # Show top 5
+                        st.markdown(f"**{symbol}**")
+                        for reason in data['reasons']:
+                            st.markdown(f"  - {reason}")
+
+                # Hold the rest
+                hold_count = len(holdings_df) - len(exit_stocks) - len(reduce_stocks) - len(monitor_stocks)
+                if hold_count > 0:
+                    st.success(f"**✅ HOLD:** {hold_count} other stock(s) looking good")
+
+        # Ask AI Section for Portfolio
+        st.markdown("---")
+        st.subheader("💬 Ask AI About Your Portfolio")
+        st.markdown("Get AI-powered insights about your portfolio and rebalancing decisions")
+
+        # Initialize conversation history for portfolio
+        if 'portfolio_ai_conversation_history' not in st.session_state:
+            st.session_state.portfolio_ai_conversation_history = []
+
+        # Build portfolio context
+        portfolio_context_key = 'portfolio_ai_context'
+        if portfolio_context_key not in st.session_state or st.button("🔄 Refresh Portfolio Context"):
+            context_parts = [
+                "Portfolio Analysis",
+                f"Analysis Date: {datetime.now().strftime('%Y-%m-%d')}",
+                f"\nNumber of Holdings: {len(holdings_df)}",
+            ]
+
+            # Add portfolio value and daily change
+            if daily_change:
+                context_parts.append(f"Current Portfolio Value: ${daily_change['value_today']:,.2f}")
+                context_parts.append(f"Daily Change: ${daily_change['change']:,.2f} ({daily_change['change_pct']:+.2f}%)")
+                context_parts.append(f"Previous Value: ${daily_change['value_yesterday']:,.2f}")
+
+            # Add top holdings
+            if 'current_value' in holdings_df.columns:
+                top_holdings = holdings_df.nlargest(5, 'current_value')
+                context_parts.append("\nTop 5 Holdings by Value:")
+                for idx, row in top_holdings.iterrows():
+                    weight = row.get('current_weight', 0) * 100
+                    change = row.get('price_change_pct', 0)
+                    context_parts.append(f"- {row['symbol']}: ${row['current_value']:,.2f} ({weight:.1f}% of portfolio, {change:+.2f}% today)")
+
+            # Add top movers
+            if 'price_change_pct' in holdings_df.columns:
+                top_gainers = holdings_df.nlargest(3, 'price_change_pct')
+                top_losers = holdings_df.nsmallest(3, 'price_change_pct')
+
+                context_parts.append("\nTop 3 Gainers Today:")
+                for idx, row in top_gainers.iterrows():
+                    context_parts.append(f"- {row['symbol']}: {row['price_change_pct']:+.2f}%")
+
+                context_parts.append("\nTop 3 Losers Today:")
+                for idx, row in top_losers.iterrows():
+                    context_parts.append(f"- {row['symbol']}: {row['price_change_pct']:+.2f}%")
+
+            # Add alerts if available
+            if 'alerts' in st.session_state and len(st.session_state.alerts) > 0:
+                alerts_df = st.session_state.alerts
+                summary = alert_system.summarize_alerts(alerts_df)
+                context_parts.append(f"\nAlerts: {summary['critical']} critical, {summary['warnings']} warnings, {summary['info']} info")
+
+                # Add critical alerts
+                critical = alert_system.get_critical_actions(alerts_df)
+                if len(critical) > 0:
+                    context_parts.append("\nCritical Alerts:")
+                    for idx, alert in critical.iterrows():
+                        context_parts.append(f"- {alert['symbol']}: {alert['message']} (Action: {alert['action']})")
+
+            # Add news sentiment if available
+            if 'news_monitoring' in st.session_state:
+                news_df = st.session_state.news_monitoring
+                critical_news = len(news_df[news_df['alert_level'] == 'critical'])
+                warnings = len(news_df[news_df['alert_level'] == 'warning'])
+                context_parts.append(f"\nNews: {critical_news} critical, {warnings} warnings from recent news scan")
+
+            # Add performance metrics if available
+            if len(snapshots_df) >= 2 and 'error' not in metrics:
+                context_parts.append(f"\nPerformance ({period}):")
+                context_parts.append(f"- Total Return: {metrics['total_return']*100:.2f}%")
+                context_parts.append(f"- Annualized Return: {metrics['annualized_return']*100:.2f}%")
+                context_parts.append(f"- Sharpe Ratio: {metrics['sharpe_ratio']:.2f}")
+                context_parts.append(f"- Max Drawdown: {metrics['max_drawdown']*100:.2f}%")
+                if metrics.get('benchmark'):
+                    context_parts.append(f"- Alpha vs SPY: {metrics['alpha']*100:.2f}%")
+
+            # ===== TIER 1 SIGNALS FOR ENHANCED AI RECOMMENDATIONS =====
+
+            # 1. Market Fear Gauge (VIX)
+            try:
+                from src.data import DataManager
+                dm = DataManager()
+                vix_data = dm.get_prices(['^VIX'], use_cache=True, show_progress=False)
+                if '^VIX' in vix_data and not vix_data['^VIX'].empty:
+                    current_vix = vix_data['^VIX']['close'].iloc[-1]
+                    context_parts.append(f"\nMarket Fear Gauge (VIX): {current_vix:.2f}")
+                    if current_vix > 30:
+                        context_parts.append("  ⚠️ HIGH VOLATILITY - Elevated market fear (VIX > 30)")
+                    elif current_vix > 20:
+                        context_parts.append("  ⚡ MODERATE VOLATILITY - Some market uncertainty (VIX 20-30)")
+                    else:
+                        context_parts.append("  ✅ LOW VOLATILITY - Calm market conditions (VIX < 20)")
+            except Exception as e:
+                pass  # VIX not critical, skip if unavailable
+
+            # 2. SPY Recent Performance (Market Direction)
+            try:
+                from src.data import DataManager
+                dm = DataManager()
+                spy_data = dm.get_prices(['SPY'], use_cache=True, show_progress=False)
+                if 'SPY' in spy_data and not spy_data['SPY'].empty:
+                    spy_prices = spy_data['SPY']['adjusted_close']
+                    if len(spy_prices) >= 21:
+                        spy_5d_return = (spy_prices.iloc[-1] / spy_prices.iloc[-6] - 1) * 100
+                        spy_20d_return = (spy_prices.iloc[-1] / spy_prices.iloc[-21] - 1) * 100
+                        context_parts.append(f"\nMarket Direction (SPY):")
+                        context_parts.append(f"- Last 5 days: {spy_5d_return:+.2f}%")
+                        context_parts.append(f"- Last 20 days: {spy_20d_return:+.2f}%")
+
+                        # Market trend interpretation
+                        if spy_5d_return < -5:
+                            context_parts.append("  📉 Market in short-term pullback")
+                        elif spy_5d_return > 5:
+                            context_parts.append("  📈 Market in short-term rally")
+
+                        if spy_20d_return < -10:
+                            context_parts.append("  ⚠️ Market in medium-term downtrend")
+                        elif spy_20d_return > 10:
+                            context_parts.append("  ✅ Market in medium-term uptrend")
+            except Exception as e:
+                pass
+
+            # 3. Concentration Risk
+            if 'current_weight' in holdings_df.columns and len(holdings_df) >= 3:
+                try:
+                    top3_weight = holdings_df.nlargest(3, 'current_value')['current_weight'].sum() * 100
+                    context_parts.append(f"\nPortfolio Concentration:")
+                    context_parts.append(f"- Top 3 holdings: {top3_weight:.1f}% of portfolio")
+                    if top3_weight > 50:
+                        context_parts.append("  ⚠️ VERY HIGH concentration - significant risk if top holdings decline")
+                    elif top3_weight > 40:
+                        context_parts.append("  ⚡ HIGH concentration - consider diversification")
+                    else:
+                        context_parts.append("  ✅ Reasonable diversification")
+                except:
+                    pass
+
+            # 4. Position Strength (52-week high/low for top holdings)
+            if 'symbol' in holdings_df.columns:
+                try:
+                    from src.data import DataManager
+                    dm = DataManager()
+                    top_symbols = holdings_df.nlargest(5, 'current_value')['symbol'].tolist()
+                    price_data = dm.get_prices(top_symbols, use_cache=True, show_progress=False)
+
+                    weak_positions = []
+                    strong_positions = []
+
+                    for symbol in top_symbols:
+                        if symbol in price_data and not price_data[symbol].empty:
+                            prices = price_data[symbol]['adjusted_close']
+                            if len(prices) >= 252:
+                                current = prices.iloc[-1]
+                                week_52_high = prices.tail(252).max()
+                                week_52_low = prices.tail(252).min()
+                                pct_from_high = ((current - week_52_high) / week_52_high) * 100
+                                pct_from_low = ((current - week_52_low) / week_52_low) * 100
+
+                                if pct_from_high > -5:
+                                    strong_positions.append(f"{symbol} (at/near 52w high)")
+                                elif pct_from_high < -25:
+                                    weak_positions.append(f"{symbol} ({pct_from_high:.1f}% from 52w high)")
+
+                    if strong_positions or weak_positions:
+                        context_parts.append("\nPosition Strength (Top Holdings vs 52-Week Range):")
+                        if strong_positions:
+                            context_parts.append(f"  💪 STRONG: {', '.join(strong_positions)}")
+                        if weak_positions:
+                            context_parts.append(f"  ⚠️ WEAK: {', '.join(weak_positions)}")
+                except:
+                    pass
+
+            # 5. Consecutive Down Days (Panic Indicator)
+            if len(snapshots_df) >= 5:
+                try:
+                    consecutive_down = 0
+                    consecutive_up = 0
+
+                    # Count consecutive down days
+                    for i in range(len(snapshots_df)-1, 0, -1):
+                        if snapshots_df.iloc[i]['total_value'] < snapshots_df.iloc[i-1]['total_value']:
+                            consecutive_down += 1
+                        else:
+                            break
+
+                    # Count consecutive up days if not down
+                    if consecutive_down == 0:
+                        for i in range(len(snapshots_df)-1, 0, -1):
+                            if snapshots_df.iloc[i]['total_value'] > snapshots_df.iloc[i-1]['total_value']:
+                                consecutive_up += 1
+                            else:
+                                break
+
+                    if consecutive_down > 0:
+                        context_parts.append(f"\nPortfolio Trend: 📉 Down {consecutive_down} consecutive day(s)")
+                        if consecutive_down <= 2:
+                            context_parts.append("  ℹ️ Normal market fluctuation - no immediate concern")
+                        elif consecutive_down <= 4:
+                            context_parts.append("  ⚡ Short-term weakness - monitor but typically normal for momentum strategies")
+                        else:
+                            context_parts.append("  ⚠️ Extended decline - review for potential issues in holdings")
+                    elif consecutive_up > 0:
+                        context_parts.append(f"\nPortfolio Trend: 📈 Up {consecutive_up} consecutive day(s)")
+                        if consecutive_up >= 5:
+                            context_parts.append("  ✅ Strong momentum - strategy performing well")
+                except:
+                    pass
+
+            # 6. Days Since Last Rebalance (if trackable)
+            try:
+                # Try to infer from snapshot source or metadata
+                if len(snapshots_df) > 0:
+                    latest_snapshot = snapshots_df.iloc[-1]
+                    snapshot_date = pd.to_datetime(latest_snapshot['date'])
+                    days_tracked = (datetime.now() - snapshot_date).days
+
+                    # Estimate time in current portfolio (rough heuristic)
+                    if days_tracked < 30:
+                        context_parts.append(f"\nTime in Current Portfolio: ~{days_tracked} days")
+                        if days_tracked < 7:
+                            context_parts.append("  ℹ️ Very recent portfolio - give strategy time to work")
+                        elif days_tracked >= 25:
+                            context_parts.append("  📅 Approaching monthly rebalance window")
+            except:
+                pass
+
+            # 7. Batch Analysis Results (if available)
+            if 'batch_analysis_results' in st.session_state:
+                try:
+                    batch_df = pd.DataFrame(st.session_state.batch_analysis_results)
+
+                    # Overall portfolio AI metrics
+                    avg_sentiment = batch_df['sentiment_score'].mean() if 'sentiment_score' in batch_df else None
+                    avg_risk = batch_df['risk_score'].mean() if 'risk_score' in batch_df else None
+
+                    context_parts.append("\n🤖 AI Analysis Results (from batch analysis):")
+
+                    if avg_sentiment is not None:
+                        sentiment_label = "BULLISH" if avg_sentiment >= 0.7 else "NEUTRAL" if avg_sentiment >= 0.5 else "BEARISH"
+                        context_parts.append(f"- Portfolio Avg Sentiment: {avg_sentiment:.3f} ({sentiment_label})")
+
+                    if avg_risk is not None:
+                        risk_label = "LOW RISK" if avg_risk < 0.4 else "MEDIUM RISK" if avg_risk < 0.7 else "HIGH RISK"
+                        context_parts.append(f"- Portfolio Avg Risk: {avg_risk:.2f} ({risk_label})")
+
+                    # High risk stocks
+                    high_risk_stocks = batch_df[batch_df['risk_score'] > 0.7] if 'risk_score' in batch_df else pd.DataFrame()
+                    if len(high_risk_stocks) > 0:
+                        context_parts.append(f"\n⚠️ HIGH RISK STOCKS ({len(high_risk_stocks)}):")
+                        for _, stock in high_risk_stocks.sort_values('risk_score', ascending=False).head(5).iterrows():
+                            weight = stock.get('current_weight', 0)
+                            context_parts.append(f"  - {stock['symbol']}: Risk {stock['risk_score']:.2f} ({weight:.1f}% of portfolio)")
+                            if 'key_risk' in stock and pd.notna(stock['key_risk']):
+                                context_parts.append(f"    Key Risk: {stock['key_risk']}")
+                            if 'risk_recommendation' in stock and pd.notna(stock['risk_recommendation']):
+                                context_parts.append(f"    Recommendation: {stock['risk_recommendation']}")
+
+                    # Bearish stocks
+                    bearish_stocks = batch_df[batch_df['sentiment_score'] < 0.4] if 'sentiment_score' in batch_df else pd.DataFrame()
+                    if len(bearish_stocks) > 0:
+                        context_parts.append(f"\n📉 BEARISH STOCKS ({len(bearish_stocks)}):")
+                        for _, stock in bearish_stocks.sort_values('sentiment_score').head(5).iterrows():
+                            weight = stock.get('current_weight', 0)
+                            context_parts.append(f"  - {stock['symbol']}: Sentiment {stock['sentiment_score']:.3f} ({weight:.1f}% of portfolio)")
+
+                    # Bullish + Strong stocks
+                    strong_stocks = batch_df[
+                        (batch_df['sentiment_score'] >= 0.7) &
+                        (batch_df['risk_score'] < 0.4)
+                    ] if 'sentiment_score' in batch_df and 'risk_score' in batch_df else pd.DataFrame()
+                    if len(strong_stocks) > 0:
+                        context_parts.append(f"\n✅ STRONG STOCKS ({len(strong_stocks)}) - High sentiment, Low risk:")
+                        for _, stock in strong_stocks.sort_values('sentiment_score', ascending=False).head(5).iterrows():
+                            weight = stock.get('current_weight', 0)
+                            context_parts.append(f"  - {stock['symbol']}: Sentiment {stock['sentiment_score']:.3f}, Risk {stock['risk_score']:.2f} ({weight:.1f}%)")
+
+                except Exception as e:
+                    pass  # Batch analysis data might be incomplete
+
+            # 8. Technical Indicators (RSI, Momentum, Volume, MAs) for top holdings
+            try:
+                from src.data import DataManager
+                from src.analysis import analyze_stock_technicals
+
+                dm = DataManager()
+                top_symbols = holdings_df.nlargest(10, 'current_value')['symbol'].tolist() if 'current_value' in holdings_df.columns else holdings_df['symbol'].tolist()[:10]
+                price_data = dm.get_prices(top_symbols, use_cache=True, show_progress=False)
+
+                context_parts.append("\n📊 Technical Momentum Indicators (Top Holdings):")
+
+                overbought_stocks = []
+                oversold_stocks = []
+                decelerating_stocks = []
+                accelerating_stocks = []
+                death_cross_stocks = []
+                golden_cross_stocks = []
+
+                for symbol in top_symbols[:10]:  # Analyze top 10
+                    if symbol in price_data and not price_data[symbol].empty:
+                        tech = analyze_stock_technicals(price_data[symbol])
+
+                        if not tech:
+                            continue
+
+                        # RSI signals
+                        if 'rsi' in tech:
+                            rsi = tech['rsi']
+                            if tech.get('rsi_signal') == 'OVERBOUGHT':
+                                overbought_stocks.append((symbol, rsi))
+                            elif tech.get('rsi_signal') == 'OVERSOLD':
+                                oversold_stocks.append((symbol, rsi))
+
+                        # Momentum acceleration signals
+                        if 'momentum' in tech:
+                            mom = tech['momentum']
+                            if mom['status'] == 'DECELERATING':
+                                decelerating_stocks.append((symbol, mom['acceleration']))
+                            elif mom['status'] == 'ACCELERATING':
+                                accelerating_stocks.append((symbol, mom['acceleration']))
+
+                        # Moving average signals
+                        if 'moving_averages' in tech:
+                            ma = tech['moving_averages']
+                            if ma.get('ma_cross') == 'DEATH_CROSS':
+                                death_cross_stocks.append(symbol)
+                            elif ma.get('ma_cross') == 'GOLDEN_CROSS':
+                                golden_cross_stocks.append(symbol)
+
+                # Report findings
+                if overbought_stocks:
+                    context_parts.append(f"\n⚠️ OVERBOUGHT (RSI >70): {len(overbought_stocks)} stock(s)")
+                    for symbol, rsi in sorted(overbought_stocks, key=lambda x: x[1], reverse=True)[:3]:
+                        context_parts.append(f"  - {symbol}: RSI {rsi:.1f} (may be due for pullback)")
+
+                if oversold_stocks:
+                    context_parts.append(f"\n💡 OVERSOLD (RSI <30): {len(oversold_stocks)} stock(s)")
+                    for symbol, rsi in sorted(oversold_stocks, key=lambda x: x[1])[:3]:
+                        context_parts.append(f"  - {symbol}: RSI {rsi:.1f} (potential reversal opportunity)")
+
+                if decelerating_stocks:
+                    context_parts.append(f"\n📉 MOMENTUM DECELERATING: {len(decelerating_stocks)} stock(s)")
+                    for symbol, accel in sorted(decelerating_stocks, key=lambda x: x[1])[:3]:
+                        context_parts.append(f"  - {symbol}: Momentum slowing {accel:.2f}% (early warning)")
+
+                if accelerating_stocks:
+                    context_parts.append(f"\n🚀 MOMENTUM ACCELERATING: {len(accelerating_stocks)} stock(s)")
+                    for symbol, accel in sorted(accelerating_stocks, key=lambda x: x[1], reverse=True)[:3]:
+                        context_parts.append(f"  - {symbol}: Momentum increasing +{accel:.2f}% (strengthening)")
+
+                if death_cross_stocks:
+                    context_parts.append(f"\n☠️ DEATH CROSS (50MA < 200MA): {', '.join(death_cross_stocks)}")
+                    context_parts.append("  ⚠️ Bearish technical signal - momentum may be breaking")
+
+                if golden_cross_stocks:
+                    context_parts.append(f"\n✨ GOLDEN CROSS (50MA > 200MA): {', '.join(golden_cross_stocks)}")
+                    context_parts.append("  ✅ Bullish technical signal - strong trend confirmed")
+
+                # Summary
+                if not any([overbought_stocks, oversold_stocks, decelerating_stocks, death_cross_stocks]):
+                    context_parts.append("\n✅ Technical indicators look healthy - no major warnings")
+
+            except Exception as e:
+                pass  # Technical indicators not critical
+
+            # 9. Sector Intelligence (if available)
+            if 'sector_analysis' in st.session_state:
+                try:
+                    sector_data = st.session_state.sector_analysis
+                    concentration = sector_data.get('concentration', {})
+                    momentum = sector_data.get('momentum', {})
+                    rotation = sector_data.get('rotation', {})
+                    recommendations = sector_data.get('recommendations', [])
+
+                    context_parts.append("\n🎯 Sector Intelligence:")
+
+                    # Concentration
+                    if concentration:
+                        top_sector = concentration.get('top_sector', 'N/A')
+                        top_weight = concentration.get('top_sector_weight', 0)
+                        div_score = concentration.get('diversification_score', 0)
+                        conc_level = concentration.get('concentration_level', 'N/A')
+
+                        context_parts.append(f"- Top Sector: {top_sector} ({top_weight:.1f}% of portfolio)")
+                        context_parts.append(f"- Diversification Score: {div_score:.0f}/100 ({conc_level} concentration)")
+                        context_parts.append(f"- Number of Sectors: {concentration.get('num_sectors', 0)}")
+
+                    # Sector momentum
+                    if momentum and 'sector_momentum' in momentum:
+                        leading = momentum.get('leading_sector')
+                        lagging = momentum.get('lagging_sector')
+                        spread = momentum.get('momentum_spread', 0)
+
+                        context_parts.append(f"\nSector Momentum:")
+                        context_parts.append(f"- Leading Sector: {leading}")
+                        context_parts.append(f"- Lagging Sector: {lagging}")
+                        context_parts.append(f"- Leader-Laggard Spread: {spread:.1f}%")
+
+                        # Detail on sectors with significant exposure
+                        sector_mom = momentum['sector_momentum']
+                        for sector, data in sorted(sector_mom.items(), key=lambda x: x[1]['weight'], reverse=True)[:3]:
+                            if data['weight'] > 10:  # Only report if >10% of portfolio
+                                context_parts.append(f"  - {sector}: {data['momentum']:+.1f}% momentum ({data['weight']:.1f}% of portfolio)")
+
+                    # Rotation
+                    if rotation and rotation.get('rotation_detected'):
+                        context_parts.append(f"\n🔄 SECTOR ROTATION: {rotation.get('rotation_description')}")
+
+                    # Recommendations
+                    if recommendations:
+                        context_parts.append("\nSector Recommendations:")
+                        for rec in recommendations[:3]:  # Top 3 recommendations
+                            context_parts.append(f"  {rec}")
+
+                except Exception as e:
+                    pass  # Sector analysis not critical
+
+            st.session_state[portfolio_context_key] = "\n".join(context_parts)
+
+        # Display conversation history
+        if st.session_state.portfolio_ai_conversation_history:
+            with st.expander("📜 Conversation History", expanded=False):
+                for i, msg in enumerate(st.session_state.portfolio_ai_conversation_history):
+                    role = msg['role']
+                    content = msg['content']
+                    if role == 'user':
+                        st.markdown(f"**You:** {content}")
+                    else:
+                        st.markdown(f"**AI:** {content}")
+                    if i < len(st.session_state.portfolio_ai_conversation_history) - 1:
+                        st.markdown("---")
+
+        # Question input with form
+        with st.form(key="portfolio_ask_ai_form", clear_on_submit=True):
+            portfolio_question = st.text_area(
+                "Ask a question about your portfolio:",
+                placeholder="e.g., There seems to be a lot of fear in the market now, should I rebalance sooner than expected? Should I hold or reduce my positions?",
+                height=100,
+                key="portfolio_ai_question_input"
+            )
+
+            col1, col2 = st.columns([1, 5])
+            with col1:
+                portfolio_submit_button = st.form_submit_button("Ask AI", type="primary")
+            with col2:
+                if st.form_submit_button("Clear History"):
+                    st.session_state.portfolio_ai_conversation_history = []
+                    st.rerun()
+
+        # Process question when submitted
+        if portfolio_submit_button and portfolio_question.strip():
+            with st.spinner("AI is analyzing your portfolio..."):
+                try:
+                    from openai import OpenAI
+                    import os
+                    import yaml
+
+                    # Initialize OpenAI client
+                    api_key = None
+
+                    # Try Streamlit secrets first
+                    try:
+                        if hasattr(st, 'secrets') and 'openai' in st.secrets:
+                            api_key = st.secrets['openai'].get('api_key')
+                    except:
+                        pass
+
+                    # Try environment variable
+                    if not api_key:
+                        api_key = os.getenv('OPENAI_API_KEY')
+
+                    # Try config file
+                    if not api_key:
+                        try:
+                            with open('config/api_keys.yaml', 'r') as f:
+                                config = yaml.safe_load(f)
+                                api_key = config.get('openai', {}).get('api_key')
+                        except:
+                            pass
+
+                    if not api_key:
+                        st.error("OpenAI API key not found. Please configure it in Streamlit secrets, environment, or config file.")
+                    else:
+                        client = OpenAI(api_key=api_key)
+
+                        # Build messages for API call
+                        messages = [
+                            {
+                                "role": "system",
+                                "content": f"""You are a helpful financial portfolio advisor assistant specializing in momentum investing strategies. You have access to the user's comprehensive portfolio data including market signals:
+
+{st.session_state[portfolio_context_key]}
+
+KEY SIGNALS TO CONSIDER IN YOUR ADVICE:
+
+1. **VIX (Market Fear Gauge)**:
+   - VIX > 30 = High fear, but also potential opportunity for disciplined investors
+   - VIX 20-30 = Normal volatility, stay the course
+   - VIX < 20 = Low fear, smooth sailing
+
+2. **Market Direction (SPY)**:
+   - Use 5-day and 20-day returns to gauge short vs medium-term trends
+   - Short-term pullbacks are normal; medium-term downtrends warrant closer monitoring
+
+3. **Portfolio Concentration**:
+   - Top 3 > 50% = High risk, diversification needed
+   - Top 3 > 40% = Elevated risk, watch closely
+   - Consider this when recommending holds vs rebalancing
+
+4. **Position Strength (52-week high/low)**:
+   - Positions near 52w highs = Strong momentum, keep riding
+   - Positions >25% below 52w highs = Weakening momentum, may need replacement
+
+5. **Consecutive Down Days**:
+   - 1-2 days down = Normal noise, ignore
+   - 3-4 days down = Short-term weakness, typically normal for momentum
+   - 5+ days down = Extended decline, investigate underlying issues
+
+6. **Time in Portfolio**:
+   - <7 days = Too early to judge, give it time
+   - 25-30 days = Approaching monthly rebalance window
+   - Consider holding pattern until scheduled rebalance unless critical issues
+
+7. **AI Batch Analysis Results** (if available):
+   - Portfolio Avg Sentiment: Overall bullish/neutral/bearish signal
+   - Portfolio Avg Risk: Overall risk level
+   - High Risk Stocks: Individual positions with concerning risk scores (>0.7)
+   - Bearish Stocks: Positions with low sentiment (<0.4), momentum may be breaking
+   - Strong Stocks: High sentiment + low risk = ideal momentum positions
+   - PRIORITIZE stock-specific AI insights over market-wide fear when making decisions
+
+8. **Technical Momentum Indicators** (if available):
+   - RSI Overbought (>70): Stock may be due for pullback, but in strong uptrends can stay overbought
+   - RSI Oversold (<30): Potential reversal opportunity, but avoid catching falling knives
+   - Momentum Decelerating: Early warning sign - watch closely, momentum may be breaking
+   - Momentum Accelerating: Strengthening trend - high confidence in continuation
+   - Death Cross (50MA < 200MA): MAJOR bearish signal - consider exiting position
+   - Golden Cross (50MA > 200MA): MAJOR bullish signal - trend confirmed strong
+   - TECHNICAL signals confirm or contradict fundamental/sentiment analysis
+
+9. **Sector Intelligence** (if available):
+   - Concentration >40% in one sector = HIGH RISK - sector-specific events could tank portfolio
+   - Diversification Score <50 = Poor diversification - too concentrated
+   - Sector Rotation = Market regime changing - adjust allocations accordingly
+   - Heavy exposure to lagging sector = Drag on performance - consider rotation
+   - Heavy exposure to leading sector = Riding the trend - but watch for exhaustion
+   - Use sector analysis to avoid over-concentration and catch rotation early
+
+REBALANCING DECISION FRAMEWORK:
+
+**WAIT for monthly rebalance if**:
+- VIX elevated but no critical alerts
+- Only 1-4 consecutive down days
+- Strong positions still holding
+- Time in portfolio < 25 days
+- Market in normal pullback (not crash)
+- Avg portfolio sentiment > 0.5 (neutral to bullish)
+- Avg portfolio risk < 0.6 (manageable risk)
+- Few/no high-risk or bearish stocks in batch analysis
+- Sector concentration < 50% in top sector
+- Diversification score > 40
+- No major sector rotation detected
+
+**CONSIDER early rebalancing if**:
+- Multiple critical alerts on top holdings
+- High concentration (>50%) + top holdings showing weakness (>25% from 52w high)
+- 5+ consecutive down days + multiple weak positions
+- Clear evidence momentum has broken (not just fear)
+- VIX spike + major position-specific issues
+- Batch analysis shows: 3+ high-risk stocks OR avg portfolio risk > 0.7
+- Batch analysis shows: Multiple bearish stocks that are large positions (>5% each)
+- Avg portfolio sentiment < 0.4 (broadly bearish across holdings)
+- Technical signals: 2+ death crosses in top holdings (momentum clearly broken)
+- Technical signals: 3+ stocks with decelerating momentum + high RSI (exhaustion pattern)
+- Technical signals: Top holding in death cross + bearish sentiment + high risk (triple confirmation)
+- Sector analysis: >60% concentrated in ONE sector (extreme risk)
+- Sector analysis: >40% in LAGGING sector (negative momentum drag)
+- Sector analysis: Major rotation detected + you're heavy in fading sectors (misaligned with market)
+
+**GENERAL PHILOSOPHY**:
+- Momentum strategies require discipline and time to work
+- Market fear (high VIX) ≠ bad strategy, often creates opportunities
+- Monthly rebalancing is optimal; excessive trading hurts returns
+- Position-specific issues (earnings miss, critical news) > market-wide fear
+- Always weigh transaction costs and tax implications of early rebalancing
+
+Provide thoughtful, balanced advice using these signals. Reference specific data points from the context. Always remind the user to consider their own risk tolerance, investment timeline, and financial situation."""
+                            }
+                        ]
+
+                        # Add conversation history
+                        for msg in st.session_state.portfolio_ai_conversation_history:
+                            messages.append({"role": msg["role"], "content": msg["content"]})
+
+                        # Add current question
+                        messages.append({"role": "user", "content": portfolio_question})
+
+                        # Call OpenAI API
+                        response = client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=messages,
+                            temperature=0.7,
+                            max_tokens=1000
+                        )
+
+                        ai_response = response.choices[0].message.content
+
+                        # Update conversation history
+                        st.session_state.portfolio_ai_conversation_history.append({
+                            "role": "user",
+                            "content": portfolio_question
+                        })
+                        st.session_state.portfolio_ai_conversation_history.append({
+                            "role": "assistant",
+                            "content": ai_response
+                        })
+
+                        # Display the response
+                        st.markdown("**AI Response:**")
+                        st.info(ai_response)
+
+                except Exception as e:
+                    st.error(f"Error calling AI: {e}")
+                    import traceback
+                    with st.expander("View error details"):
+                        st.code(traceback.format_exc())
+
+        # Batch Analysis Section
+        st.markdown("---")
+        st.subheader("🔬 Analyze All Stocks in Portfolio")
+        st.markdown("Run comprehensive AI analysis on every holding (LLM Sentiment + Risk Assessment)")
+
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.caption(f"💰 Estimated cost: ~${len(holdings_df) * 0.00066:.3f} (using gpt-4o-mini)")
+            st.caption(f"⏱️ Estimated time: ~{len(holdings_df) * 3} seconds for {len(holdings_df)} stocks")
+        with col2:
+            batch_model = st.selectbox(
+                "Model",
+                ["gpt-4o-mini", "gpt-4o"],
+                index=0,
+                key="batch_model",
+                help="gpt-4o-mini is fastest and cheapest"
+            )
+
+        if st.button("🚀 Analyze All Stocks", type="primary", use_container_width=True):
+            with st.spinner(f"Analyzing {len(holdings_df)} stocks... This may take a minute..."):
+                try:
+                    from src.data import DataManager
+                    from src.llm import LLMScorer, LLMRiskScorer
+
+                    dm = DataManager()
+                    llm_scorer = LLMScorer(model=batch_model)
+                    risk_scorer = LLMRiskScorer(model=batch_model)
+
+                    # Initialize results storage
+                    batch_results = []
+                    symbols = holdings_df['symbol'].tolist()
+
+                    # Progress tracking
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+
+                    for idx, symbol in enumerate(symbols):
+                        status_text.text(f"Analyzing {symbol} ({idx+1}/{len(symbols)})...")
+
+                        result = {
+                            'symbol': symbol,
+                            'current_value': holdings_df[holdings_df['symbol'] == symbol]['current_value'].iloc[0] if 'current_value' in holdings_df.columns else None,
+                            'current_weight': holdings_df[holdings_df['symbol'] == symbol]['current_weight'].iloc[0] * 100 if 'current_weight' in holdings_df.columns else None,
+                            'price_change_pct': holdings_df[holdings_df['symbol'] == symbol]['price_change_pct'].iloc[0] if 'price_change_pct' in holdings_df.columns else None,
+                        }
+
+                        try:
+                            # Fetch data
+                            price_data = dm.get_prices([symbol], use_cache=True, show_progress=False)
+                            news_articles = dm.get_news([symbol], lookback_days=5, use_cache=True).get(symbol, [])
+                            earnings_data = dm.get_earnings_for_symbol(symbol, use_cache=True)
+                            analyst_data = dm.get_analyst_data_for_symbol(symbol, use_cache=True)
+
+                            # Calculate momentum
+                            momentum_return = None
+                            if symbol in price_data and not price_data[symbol].empty:
+                                prices = price_data[symbol]
+                                if 'adjusted_close' in prices.columns and len(prices) >= 252:
+                                    start_price = prices['adjusted_close'].iloc[-252]
+                                    end_price = prices['adjusted_close'].iloc[-1]
+                                    momentum_return = (end_price / start_price) - 1
+
+                            # LLM Sentiment Analysis
+                            try:
+                                from src.llm.prompts import PromptTemplate
+                                news_summary = PromptTemplate.format_news_for_prompt(
+                                    news_articles,
+                                    max_articles=20,
+                                    max_chars=3000,
+                                    prioritize_important=True
+                                )
+
+                                llm_result = llm_scorer.score_stock(
+                                    symbol=symbol,
+                                    news_summary=news_summary,
+                                    momentum_return=momentum_return,
+                                    earnings_data=earnings_data,
+                                    analyst_data=analyst_data,
+                                    return_prompt=False
+                                )
+                                result['sentiment_score'] = llm_result[1]  # normalized_score
+                            except Exception as e:
+                                result['sentiment_score'] = None
+                                result['sentiment_error'] = str(e)
+
+                            # Risk Assessment
+                            try:
+                                risk_result = risk_scorer.score_stock_risk(
+                                    symbol=symbol,
+                                    news_articles=news_articles,
+                                    max_articles=10,
+                                    return_prompt=False
+                                )
+                                result['risk_score'] = risk_result['overall_risk_score']
+                                result['key_risk'] = risk_result.get('key_risk', 'None')
+                                result['risk_recommendation'] = risk_result.get('recommendation', 'N/A')
+                            except Exception as e:
+                                result['risk_score'] = None
+                                result['risk_error'] = str(e)
+
+                            result['status'] = 'success'
+
+                        except Exception as e:
+                            result['status'] = 'error'
+                            result['error'] = str(e)
+
+                        batch_results.append(result)
+                        progress_bar.progress((idx + 1) / len(symbols))
+
+                    # Store results in session state
+                    st.session_state.batch_analysis_results = batch_results
+
+                    status_text.text("✅ Analysis complete!")
+                    progress_bar.empty()
+
+                    st.success(f"Successfully analyzed {len(batch_results)} stocks!")
+
+                except Exception as e:
+                    st.error(f"Batch analysis failed: {e}")
+                    import traceback
+                    with st.expander("View error details"):
+                        st.code(traceback.format_exc())
+
+        # Display batch results if available
+        if 'batch_analysis_results' in st.session_state:
+            st.markdown("---")
+            st.markdown("### 📊 Portfolio Analysis Summary")
+
+            results_df = pd.DataFrame(st.session_state.batch_analysis_results)
+
+            # Summary metrics
+            col1, col2, col3, col4 = st.columns(4)
+
+            with col1:
+                avg_sentiment = results_df['sentiment_score'].mean() if 'sentiment_score' in results_df else None
+                if avg_sentiment is not None:
+                    st.metric("Avg Sentiment", f"{avg_sentiment:.3f}")
+                    if avg_sentiment >= 0.7:
+                        st.caption("🟢 Bullish Portfolio")
+                    elif avg_sentiment >= 0.5:
+                        st.caption("🟡 Neutral Portfolio")
+                    else:
+                        st.caption("🔴 Cautious Portfolio")
+                else:
+                    st.metric("Avg Sentiment", "N/A")
+
+            with col2:
+                avg_risk = results_df['risk_score'].mean() if 'risk_score' in results_df else None
+                if avg_risk is not None:
+                    st.metric("Avg Risk", f"{avg_risk:.2f}")
+                    if avg_risk < 0.4:
+                        st.caption("🟢 Low Risk")
+                    elif avg_risk < 0.7:
+                        st.caption("🟡 Medium Risk")
+                    else:
+                        st.caption("🔴 High Risk")
+                else:
+                    st.metric("Avg Risk", "N/A")
+
+            with col3:
+                high_risk_count = len(results_df[results_df['risk_score'] > 0.7]) if 'risk_score' in results_df else 0
+                st.metric("High Risk Stocks", high_risk_count)
+                if high_risk_count > 0:
+                    st.caption("⚠️ Review these")
+
+            with col4:
+                low_sentiment_count = len(results_df[results_df['sentiment_score'] < 0.4]) if 'sentiment_score' in results_df else 0
+                st.metric("Bearish Stocks", low_sentiment_count)
+                if low_sentiment_count > 0:
+                    st.caption("⚠️ Monitor closely")
+
+            # Detailed results table
+            with st.expander("📋 View Detailed Results", expanded=True):
+                # Create display dataframe
+                display_df = results_df.copy()
+
+                # Format columns
+                if 'current_weight' in display_df.columns:
+                    display_df['weight_%'] = display_df['current_weight'].apply(lambda x: f"{x:.1f}%" if pd.notna(x) else "N/A")
+                if 'price_change_pct' in display_df.columns:
+                    display_df['today_%'] = display_df['price_change_pct'].apply(lambda x: f"{x:+.2f}%" if pd.notna(x) else "N/A")
+                if 'sentiment_score' in display_df.columns:
+                    display_df['sentiment'] = display_df['sentiment_score'].apply(
+                        lambda x: f"{x:.3f} {'🟢' if x >= 0.7 else '🟡' if x >= 0.5 else '🔴'}" if pd.notna(x) else "N/A"
+                    )
+                if 'risk_score' in display_df.columns:
+                    display_df['risk'] = display_df['risk_score'].apply(
+                        lambda x: f"{x:.2f} {'🟢' if x < 0.4 else '🟡' if x < 0.7 else '🔴'}" if pd.notna(x) else "N/A"
+                    )
+
+                # Select columns to display
+                display_cols = ['symbol']
+                if 'weight_%' in display_df.columns:
+                    display_cols.append('weight_%')
+                if 'today_%' in display_df.columns:
+                    display_cols.append('today_%')
+                if 'sentiment' in display_df.columns:
+                    display_cols.append('sentiment')
+                if 'risk' in display_df.columns:
+                    display_cols.append('risk')
+                if 'risk_recommendation' in display_df.columns:
+                    display_cols.append('risk_recommendation')
+
+                st.dataframe(
+                    display_df[display_cols],
+                    use_container_width=True,
+                    hide_index=True
+                )
+
+            # Action items
+            st.markdown("### 🎯 Action Items")
+
+            # High risk stocks
+            if 'risk_score' in results_df.columns:
+                high_risk_stocks = results_df[results_df['risk_score'] > 0.7].sort_values('risk_score', ascending=False)
+                if len(high_risk_stocks) > 0:
+                    st.warning(f"⚠️ **{len(high_risk_stocks)} High-Risk Stock(s) Detected**")
+                    for _, stock in high_risk_stocks.iterrows():
+                        st.markdown(f"- **{stock['symbol']}**: Risk {stock['risk_score']:.2f} - {stock.get('key_risk', 'N/A')}")
+                        st.caption(f"  Recommendation: {stock.get('risk_recommendation', 'N/A')}")
+
+            # Low sentiment stocks
+            if 'sentiment_score' in results_df.columns:
+                low_sentiment_stocks = results_df[results_df['sentiment_score'] < 0.4].sort_values('sentiment_score')
+                if len(low_sentiment_stocks) > 0:
+                    st.warning(f"📉 **{len(low_sentiment_stocks)} Bearish Stock(s) Detected**")
+                    for _, stock in low_sentiment_stocks.iterrows():
+                        st.markdown(f"- **{stock['symbol']}**: Sentiment {stock['sentiment_score']:.3f}")
+
+            # All clear message
+            if (high_risk_count == 0 and low_sentiment_count == 0):
+                st.success("✅ **Portfolio looks healthy!** No major concerns detected.")
+
         # Quick actions
         st.markdown("---")
         st.subheader("⚡ Quick Actions")
@@ -2236,6 +3634,188 @@ elif page == "🔍 Analyze Individual Stock":
 
                                 except Exception as e:
                                     st.error(f"Error during risk analysis: {e}")
+                                    import traceback
+                                    with st.expander("View error details"):
+                                        st.code(traceback.format_exc())
+
+                        # Ask AI Section
+                        st.markdown("---")
+                        st.subheader("💬 Ask AI")
+                        st.markdown("Ask questions about this stock analysis and get AI-powered insights")
+
+                        # Initialize conversation history in session state
+                        if 'ai_conversation_history' not in st.session_state:
+                            st.session_state.ai_conversation_history = []
+
+                        # Initialize analysis context in session state (preserves the current analysis)
+                        context_key = f'ai_analysis_context_{ticker}'
+                        if context_key not in st.session_state:
+                            # Build context from current analysis
+                            context_parts = [
+                                f"Stock: {ticker}",
+                                f"Analysis Date: {datetime.now().strftime('%Y-%m-%d')}",
+                            ]
+
+                            # Add momentum data
+                            if momentum_return is not None:
+                                context_parts.append(f"12-Month Momentum: {momentum_return*100:.2f}%")
+                            if momentum_return is not None and spy_momentum is not None:
+                                relative_perf = (momentum_return - spy_momentum) * 100
+                                context_parts.append(f"Performance vs SPY: {relative_perf:+.2f}%")
+
+                            # Add news summary
+                            if news_articles:
+                                context_parts.append(f"\nRecent News ({len(news_articles)} articles):")
+                                # Limit news context to first 5 articles
+                                for i, article in enumerate(news_articles[:5], 1):
+                                    article_text = article[:150] + "..." if len(article) > 150 else article
+                                    context_parts.append(f"{i}. {article_text}")
+
+                            # Add earnings data
+                            if earnings_data:
+                                context_parts.append("\nEarnings & Fundamentals:")
+                                if earnings_data.get('latest_eps') is not None:
+                                    context_parts.append(f"- Latest EPS: ${earnings_data['latest_eps']:.2f}")
+                                if earnings_data.get('yoy_eps_growth') is not None:
+                                    context_parts.append(f"- YoY EPS Growth: {earnings_data['yoy_eps_growth']*100:+.1f}%")
+                                if earnings_data.get('profit_margin') is not None:
+                                    context_parts.append(f"- Profit Margin: {earnings_data['profit_margin']*100:.1f}%")
+
+                            # Add analyst data
+                            if analyst_data:
+                                context_parts.append("\nAnalyst Ratings:")
+                                if analyst_data.get('recommendation'):
+                                    context_parts.append(f"- Consensus: {analyst_data['recommendation']}")
+                                if analyst_data.get('target_mean_price'):
+                                    context_parts.append(f"- Price Target: ${analyst_data['target_mean_price']:.2f}")
+                                if analyst_data.get('upside_potential') is not None:
+                                    context_parts.append(f"- Upside Potential: {analyst_data['upside_potential']*100:+.1f}%")
+
+                            # Add LLM sentiment if available
+                            if run_llm and normalized_score is not None:
+                                context_parts.append(f"\nLLM Sentiment Score: {normalized_score:.3f}")
+                                if use_research_mode and analysis:
+                                    context_parts.append(f"AI Analysis: {analysis}")
+
+                            # Add risk assessment if available
+                            if run_risk and risk_score is not None:
+                                context_parts.append(f"\nRisk Score: {risk_score:.2f}")
+                                context_parts.append(f"Key Risk: {key_risk}")
+                                context_parts.append(f"Recommendation: {risk_result.get('recommendation', 'N/A')}")
+
+                            st.session_state[context_key] = "\n".join(context_parts)
+
+                        # Display conversation history
+                        if st.session_state.ai_conversation_history:
+                            with st.expander("📜 Conversation History", expanded=False):
+                                for i, msg in enumerate(st.session_state.ai_conversation_history):
+                                    role = msg['role']
+                                    content = msg['content']
+                                    if role == 'user':
+                                        st.markdown(f"**You:** {content}")
+                                    else:
+                                        st.markdown(f"**AI:** {content}")
+                                    if i < len(st.session_state.ai_conversation_history) - 1:
+                                        st.markdown("---")
+
+                        # Question input with form to prevent state clearing
+                        with st.form(key="ask_ai_form", clear_on_submit=True):
+                            user_question = st.text_area(
+                                "Ask a question:",
+                                placeholder="e.g., There seems to be a lot of fear now, should I hold, sell, or buy more?",
+                                height=100,
+                                key="ai_question_input"
+                            )
+
+                            col1, col2 = st.columns([1, 5])
+                            with col1:
+                                submit_button = st.form_submit_button("Ask AI", type="primary")
+                            with col2:
+                                if st.form_submit_button("Clear History"):
+                                    st.session_state.ai_conversation_history = []
+                                    st.rerun()
+
+                        # Process question when submitted
+                        if submit_button and user_question.strip():
+                            with st.spinner("AI is thinking..."):
+                                try:
+                                    from openai import OpenAI
+
+                                    # Initialize OpenAI client (same pattern as LLMScorer)
+                                    api_key = None
+
+                                    # Try Streamlit secrets first
+                                    try:
+                                        if hasattr(st, 'secrets') and 'openai' in st.secrets:
+                                            api_key = st.secrets['openai'].get('api_key')
+                                    except:
+                                        pass
+
+                                    # Try environment variable
+                                    if not api_key:
+                                        import os
+                                        api_key = os.getenv('OPENAI_API_KEY')
+
+                                    # Try config file
+                                    if not api_key:
+                                        import yaml
+                                        try:
+                                            with open('config/api_keys.yaml', 'r') as f:
+                                                config = yaml.safe_load(f)
+                                                api_key = config.get('openai', {}).get('api_key')
+                                        except:
+                                            pass
+
+                                    if not api_key:
+                                        st.error("OpenAI API key not found. Please configure it in Streamlit secrets, environment, or config file.")
+                                    else:
+                                        client = OpenAI(api_key=api_key)
+
+                                        # Build messages for API call
+                                        messages = [
+                                            {
+                                                "role": "system",
+                                                "content": f"""You are a helpful financial advisor assistant. You have access to the following analysis data for {ticker}:
+
+{st.session_state[context_key]}
+
+Use this information to answer the user's questions. Provide thoughtful, balanced advice considering both opportunities and risks. When discussing buy/hold/sell decisions, always remind the user to consider their own risk tolerance, investment timeline, and financial situation."""
+                                            }
+                                        ]
+
+                                        # Add conversation history
+                                        for msg in st.session_state.ai_conversation_history:
+                                            messages.append({"role": msg["role"], "content": msg["content"]})
+
+                                        # Add current question
+                                        messages.append({"role": "user", "content": user_question})
+
+                                        # Call OpenAI API
+                                        response = client.chat.completions.create(
+                                            model=model if model else "gpt-4o-mini",
+                                            messages=messages,
+                                            temperature=0.7,
+                                            max_tokens=1000
+                                        )
+
+                                        ai_response = response.choices[0].message.content
+
+                                        # Update conversation history
+                                        st.session_state.ai_conversation_history.append({
+                                            "role": "user",
+                                            "content": user_question
+                                        })
+                                        st.session_state.ai_conversation_history.append({
+                                            "role": "assistant",
+                                            "content": ai_response
+                                        })
+
+                                        # Display the response
+                                        st.markdown("**AI Response:**")
+                                        st.info(ai_response)
+
+                                except Exception as e:
+                                    st.error(f"Error calling AI: {e}")
                                     import traceback
                                     with st.expander("View error details"):
                                         st.code(traceback.format_exc())

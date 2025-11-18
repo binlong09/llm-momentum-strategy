@@ -20,8 +20,13 @@ def get_cookie_manager():
 def is_production():
     """Check if running in production (deployed) environment"""
     # Check if running on Streamlit Cloud or other deployment
+    try:
+        has_auth_secrets = "auth" in st.secrets
+    except:
+        has_auth_secrets = False
+
     return (
-        "auth" in st.secrets  # Secrets configured (production)
+        has_auth_secrets  # Secrets configured (production)
         or os.getenv("STREAMLIT_RUNTIME_ENV") == "cloud"  # Streamlit Cloud
         or os.getenv("ENABLE_AUTH") == "true"  # Manual flag
     )

@@ -3,6 +3,7 @@ LLM Stock Scorer
 Uses LLM to score stocks based on news and momentum signals.
 """
 
+import os
 import time
 import re
 import numpy as np
