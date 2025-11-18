@@ -158,7 +158,9 @@ if page == "🏠 Overview":
             if st.button("🔄 Update Prices", use_container_width=True):
                 with st.spinner("Fetching latest prices..."):
                     holdings_df = tracker.update_prices(holdings_df)
-                    snapshot = tracker.snapshot_portfolio(holdings_df, source="auto")
+                    # Include market context if available
+                    market_context = st.session_state.get('market_context')
+                    snapshot = tracker.snapshot_portfolio(holdings_df, source="auto", market_context=market_context)
                     st.success("✅ Prices updated!")
                     st.rerun()
 
@@ -294,7 +296,8 @@ elif page == "📊 Daily Monitor":
 
                 # Take snapshot
                 if st.button("💾 Save Snapshot", help="Save this portfolio state for tracking"):
-                    snapshot = tracker.snapshot_portfolio(holdings_df, source="manual")
+                    market_context = st.session_state.get('market_context')
+                    snapshot = tracker.snapshot_portfolio(holdings_df, source="manual", market_context=market_context)
                     st.success(f"Snapshot saved! Portfolio value: ${snapshot['total_value']:,.2f}")
 
             except Exception as e:
@@ -322,7 +325,8 @@ elif page == "📊 Daily Monitor":
                         st.success("Prices updated!")
 
                         # Take new snapshot with updated prices
-                        snapshot = tracker.snapshot_portfolio(holdings_df, source="auto")
+                        market_context = st.session_state.get('market_context')
+                        snapshot = tracker.snapshot_portfolio(holdings_df, source="auto", market_context=market_context)
                         st.info(f"New snapshot: ${snapshot['total_value']:,.2f}")
             else:
                 st.warning("No holdings found in snapshot history")
@@ -342,7 +346,8 @@ elif page == "📊 Daily Monitor":
             st.success("✅ Prices updated!")
 
             # Save new snapshot
-            snapshot = tracker.snapshot_portfolio(holdings_df, source="auto")
+            market_context = st.session_state.get('market_context')
+            snapshot = tracker.snapshot_portfolio(holdings_df, source="auto", market_context=market_context)
             st.metric("Current Portfolio Value", f"${snapshot['total_value']:,.2f}")
         else:
             st.warning("No existing holdings found. Upload a CSV first.")
@@ -928,6 +933,204 @@ elif page == "📊 Daily Monitor":
                 else:
                     st.success(rec)
 
+        # Market Context Analysis
+        st.markdown("---")
+        st.subheader("📊 Market Context")
+
+        if st.button("🌍 Analyze Market Conditions", type="primary"):
+            with st.spinner("Fetching market data and analyzing conditions..."):
+                try:
+                    from src.analysis import (
+                        fetch_benchmark_data,
+                        calculate_benchmark_returns,
+                        detect_market_regime,
+                        compare_portfolio_to_market,
+                        generate_market_summary,
+                        BENCHMARKS
+                    )
+
+                    # Fetch benchmark data
+                    benchmark_data = fetch_benchmark_data()
+
+                    if not benchmark_data:
+                        st.error("Failed to fetch benchmark data. Please check your internet connection.")
+                    else:
+                        st.info(f"Fetched data for {len(benchmark_data)} benchmarks")
+
+                        # Calculate returns
+                        benchmark_returns = calculate_benchmark_returns(benchmark_data)
+
+                        if benchmark_returns.empty:
+                            st.error("Failed to calculate benchmark returns - insufficient data")
+                        else:
+                            st.info(f"Calculated returns for {len(benchmark_returns)} benchmarks")
+
+                            # Detect market regime
+                            regime = detect_market_regime(benchmark_data)
+
+                            # Store in session state
+                            st.session_state.market_context = {
+                                'benchmark_data': benchmark_data,
+                                'benchmark_returns': benchmark_returns,
+                                'regime': regime
+                            }
+
+                            st.success("✅ Market analysis complete!")
+
+                except Exception as e:
+                    st.error(f"Error analyzing market: {e}")
+                    import traceback
+                    with st.expander("View error details"):
+                        st.code(traceback.format_exc())
+
+        # Display market context if available
+        if 'market_context' in st.session_state:
+            mc = st.session_state.market_context
+            regime = mc['regime']
+            benchmark_returns = mc['benchmark_returns']
+
+            # Market Regime Indicator
+            st.markdown("### 🌡️ Market Regime")
+
+            regime_name = regime['regime']
+            confidence = regime['confidence']
+
+            # Color coding
+            if regime_name == 'Bull Market':
+                regime_color = 'green'
+                regime_emoji = '🟢'
+            elif regime_name == 'Bear Market':
+                regime_color = 'red'
+                regime_emoji = '🔴'
+            else:
+                regime_color = 'orange'
+                regime_emoji = '🟡'
+
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Regime", f"{regime_emoji} {regime_name}")
+            with col2:
+                st.metric("Confidence", f"{confidence}%")
+            with col3:
+                breadth = regime.get('breadth_pct', 0)
+                st.metric("Market Breadth", f"{breadth:.0f}%")
+            with col4:
+                vix = regime.get('vix_level')
+                if vix is not None:
+                    st.metric("VIX (Fear)", f"{vix:.1f}")
+                else:
+                    st.metric("VIX (Fear)", "N/A")
+
+            # Regime details
+            with st.expander("📋 Regime Details", expanded=True):
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.markdown("**S&P 500 Position:**")
+                    st.write(f"- Trend: {regime.get('spy_trend', 'Unknown')}")
+                    st.write(f"- RSI: {regime.get('spy_rsi', 50):.1f}")
+                    st.write(f"- Above 50-day MA: {'✅' if regime.get('spy_above_50') else '❌'}")
+                    st.write(f"- Above 200-day MA: {'✅' if regime.get('spy_above_200') else '❌'}")
+
+                with col2:
+                    st.markdown("**Market Sentiment:**")
+                    fear_level = regime.get('fear_level', 'Unknown')
+                    st.write(f"- Fear Level: {fear_level}")
+
+                    if fear_level == 'Low (Complacent)':
+                        st.info("💡 Low fear may indicate complacency - watch for reversals")
+                    elif fear_level == 'High (Fear)':
+                        st.warning("⚠️ High fear may present buying opportunities")
+
+            # Benchmark Performance Table
+            st.markdown("### 📈 Benchmark Performance")
+
+            if not benchmark_returns.empty and 'symbol' in benchmark_returns.columns:
+                # Format the benchmark returns table
+                display_df = benchmark_returns.copy()
+
+                # Remove VIX from performance table
+                display_df = display_df[display_df['symbol'] != 'VIX']
+
+                # Select columns that exist
+                available_cols = ['name'] + [col for col in ['1D', '1W', '1M', '3M', '6M', '1Y'] if col in display_df.columns]
+
+                if len(available_cols) > 1:
+                    st.dataframe(
+                        display_df[available_cols],
+                        use_container_width=True,
+                        hide_index=True
+                    )
+                else:
+                    st.warning("Insufficient benchmark data available")
+            else:
+                st.warning("No benchmark data available")
+
+            # Portfolio vs Market Comparison
+            st.markdown("### 💼 Your Portfolio vs S&P 500")
+
+            # Calculate portfolio returns if we have snapshot data
+            if 'snapshots_df' in locals() and len(snapshots_df) >= 2:
+                # Calculate portfolio returns for different periods
+                portfolio_returns_dict = {}
+
+                periods_map = {
+                    '1D': 1,
+                    '1W': 7,
+                    '1M': 30,
+                    '3M': 90,
+                    '6M': 180,
+                    '1Y': 365
+                }
+
+                current_value = snapshots_df.iloc[-1]['total_value']
+
+                for label, days in periods_map.items():
+                    past_date = snapshots_df.iloc[-1]['date'] - pd.Timedelta(days=days)
+                    past_snapshots = snapshots_df[snapshots_df['date'] <= past_date]
+
+                    if len(past_snapshots) > 0:
+                        past_value = past_snapshots.iloc[-1]['total_value']
+                        ret = ((current_value / past_value) - 1) * 100
+                        portfolio_returns_dict[label] = ret
+
+                # Compare to market
+                from src.analysis import compare_portfolio_to_market
+
+                comparison = compare_portfolio_to_market(
+                    portfolio_returns_dict,
+                    benchmark_returns
+                )
+
+                if 'error' in comparison:
+                    st.warning(f"⚠️ {comparison['error']}")
+                elif 'comparisons' in comparison:
+                    comp_data = []
+                    for c in comparison['comparisons']:
+                        comp_data.append({
+                            'Period': c['period'],
+                            'Your Portfolio': f"{c['portfolio']:+.2f}%",
+                            'S&P 500': f"{c['spy']:+.2f}%",
+                            'Alpha': f"{c['alpha']:+.2f}%",
+                            'Status': '✅ Beating' if c['beating_market'] else '⚠️ Trailing'
+                        })
+
+                    comp_df = pd.DataFrame(comp_data)
+                    st.dataframe(comp_df, use_container_width=True, hide_index=True)
+
+                    # Overall alpha
+                    overall_alpha = comparison.get('overall_alpha', 0)
+                    if overall_alpha > 0:
+                        st.success(f"🎯 Overall: Outperforming S&P 500 by {overall_alpha:+.2f}% on average")
+                    else:
+                        st.warning(f"📊 Overall: Trailing S&P 500 by {abs(overall_alpha):.2f}% on average")
+
+                else:
+                    st.info("Need more portfolio history to compare performance")
+
+            else:
+                st.info("Upload portfolio snapshots to compare performance with market benchmarks")
+
         # AI Portfolio Optimizer
         st.markdown("---")
         st.subheader("🤖 AI Portfolio Optimizer")
@@ -1052,8 +1255,26 @@ elif page == "📊 Daily Monitor":
                     sector_data = {}
                     batch_data = {}
 
-                    # Market signals (if available from context building)
-                    # We'll extract from session state if available
+                    # Market signals (from market context analysis)
+                    if 'market_context' in st.session_state:
+                        mc = st.session_state.market_context
+                        regime = mc['regime']
+                        benchmark_returns = mc['benchmark_returns']
+
+                        # Extract key market signals
+                        market_signals['vix'] = regime.get('vix_level')
+                        market_signals['regime'] = regime.get('regime')
+                        market_signals['regime_confidence'] = regime.get('confidence')
+                        market_signals['spy_trend'] = regime.get('spy_trend')
+                        market_signals['spy_above_50'] = regime.get('spy_above_50')
+                        market_signals['spy_above_200'] = regime.get('spy_above_200')
+                        market_signals['breadth_pct'] = regime.get('breadth_pct')
+
+                        # SPY returns
+                        spy_row = benchmark_returns[benchmark_returns['symbol'] == 'SPY']
+                        if not spy_row.empty:
+                            market_signals['spy_5d_return'] = spy_row['1W'].iloc[0] if '1W' in spy_row.columns else None
+                            market_signals['spy_20d_return'] = spy_row['1M'].iloc[0] if '1M' in spy_row.columns else None
 
                     # Portfolio metrics
                     if daily_change:
@@ -1086,6 +1307,19 @@ elif page == "📊 Daily Monitor":
                         batch_data['high_risk_count'] = len(batch_df[batch_df['risk_score'] > 0.7]) if 'risk_score' in batch_df else 0
                         batch_data['bearish_count'] = len(batch_df[batch_df['sentiment_score'] < 0.4]) if 'sentiment_score' in batch_df else 0
                         batch_data['results'] = batch_results
+
+                    # Store debug data BEFORE running optimizer
+                    st.session_state.market_signals_debug = market_signals
+                    st.session_state.portfolio_metrics_debug = portfolio_metrics
+                    st.session_state.technical_signals_debug = technical_signals_data
+                    st.session_state.sector_analysis_debug = sector_data
+                    st.session_state.batch_analysis_debug = {
+                        'avg_sentiment': batch_data.get('avg_sentiment'),
+                        'avg_risk': batch_data.get('avg_risk'),
+                        'high_risk_count': batch_data.get('high_risk_count'),
+                        'bearish_count': batch_data.get('bearish_count'),
+                        'total_stocks_analyzed': len(batch_data.get('results', []))
+                    }
 
                     # Run optimizer
                     optimizer = PortfolioOptimizer()
@@ -1154,6 +1388,185 @@ elif page == "📊 Daily Monitor":
             with st.expander("📊 Detailed Analysis", expanded=True):
                 for line in reasoning:
                     st.markdown(line)
+
+            # Debug section - show scoring breakdown and raw signals
+            with st.expander("🔍 Debug: Scoring Breakdown & Raw Data", expanded=False):
+                st.markdown("### Scoring Methodology")
+
+                st.markdown("""
+                **Overall Portfolio Health Score = Weighted Average of:**
+                - 🌍 **Market Signals** (15% weight)
+                - 💼 **Portfolio Metrics** (20% weight)
+                - 📊 **Technical Signals** (25% weight)
+                - 🎯 **Sector Analysis** (15% weight)
+                - 🤖 **AI Batch Analysis** (25% weight)
+
+                **Recommendation Logic:**
+                - Score < 40: 🚨 REBALANCE NOW
+                - Score 40-55: ⚠️ CONSIDER REBALANCING
+                - Score 55-65: 👀 MONITOR CLOSELY
+                - Score > 65: ✅ WAIT FOR MONTHLY REBALANCE
+                """)
+
+                st.markdown("---")
+                st.markdown("### Detailed Scoring Rules")
+
+                with st.expander("🌍 Market Signals Scoring (15% weight)", expanded=False):
+                    st.markdown("""
+                    **Starting Score: 50/100 (Neutral)**
+
+                    **Market Regime:**
+                    - Bull Market: +15 points
+                    - Bear Market: -20 points
+                    - Neutral: -5 points
+
+                    **Market Breadth:**
+                    - >70%: +5 points (strong participation)
+                    - <40%: -10 points (weak participation)
+
+                    **S&P 500 Position:**
+                    - Below 200-day MA: -10 points (long-term bearish)
+                    - Below 50-day MA (but above 200): -5 points (short-term caution)
+
+                    **VIX (Fear Index):**
+                    - VIX > 35: -20 points (extreme fear)
+                    - VIX 25-35: -10 points (elevated volatility)
+                    - VIX < 15: +10 points (calm market)
+                    - VIX < 12: -5 points (complacency risk)
+
+                    **S&P 500 Returns:**
+                    - 1M return < -10%: -15 points
+                    - 1M return > 10%: +10 points
+                    - 1W return < -5%: -5 points
+                    """)
+
+                with st.expander("💼 Portfolio Metrics Scoring (20% weight)", expanded=False):
+                    st.markdown("""
+                    **Starting Score: 50/100 (Neutral)**
+
+                    **Consecutive Down Days:**
+                    - ≥5 days: -20 points (concerning trend)
+                    - 3-4 days: -10 points (monitor closely)
+
+                    **Top 3 Concentration:**
+                    - >60%: -15 points (very high concentration)
+                    - 50-60%: -10 points (high concentration)
+
+                    **Days in Portfolio:**
+                    - <7 days: +15 points (too early to judge)
+                    """)
+
+                with st.expander("📊 Technical Signals Scoring (25% weight)", expanded=False):
+                    st.markdown("""
+                    **Starting Score: 50/100 (Neutral)**
+
+                    **Death Crosses (bearish):**
+                    - ≥2 stocks: -30 points (major bearish signal)
+                    - 1 stock: -15 points (bearish signal)
+
+                    **Decelerating Momentum:**
+                    - ≥4 stocks: -15 points (momentum fading)
+                    - 2-3 stocks: -8 points (watch closely)
+
+                    **Overbought:**
+                    - ≥3 stocks: -5 points (pullback risk)
+
+                    **Golden Crosses (bullish):**
+                    - ≥3 stocks: +15 points (strong trends)
+
+                    **Accelerating Momentum:**
+                    - ≥3 stocks: +10 points (strengthening)
+                    """)
+
+                with st.expander("🎯 Sector Analysis Scoring (15% weight)", expanded=False):
+                    st.markdown("""
+                    **Starting Score: 50/100 (Neutral)**
+
+                    **Top Sector Concentration:**
+                    - >50%: -15 points (very high concentration)
+                    - 40-50%: -10 points (high concentration)
+
+                    **Sector Momentum:**
+                    - Lagging sector >20% weight: -10 points (heavy in weak sector)
+
+                    **Sector Rotation:**
+                    - Rotation detected: -5 points (uncertainty)
+                    """)
+
+                with st.expander("🤖 AI Batch Analysis Scoring (25% weight)", expanded=False):
+                    st.markdown("""
+                    **Starting Score: 50/100 (Neutral)**
+
+                    **Average Sentiment:**
+                    - <0.4 (bearish): -25 points
+                    - 0.4-0.5 (cautious): -10 points
+                    - >0.6 (bullish): +15 points
+
+                    **Average Risk:**
+                    - >0.7 (high risk): -15 points
+                    - <0.4 (low risk): +10 points
+
+                    **High Risk Count:**
+                    - ≥3 stocks: -10 points (many high-risk positions)
+
+                    **Bearish Count:**
+                    - ≥3 stocks: -10 points (many bearish signals)
+
+                    **Note:** This is the LLM's assessment of each stock based on news, earnings, analyst ratings, and momentum.
+                    """)
+
+                st.markdown("---")
+                st.markdown("### Example Calculation")
+                st.code("""
+Example: If your portfolio has...
+- Market: Bull market (+15), Low VIX (+10), Good breadth (+5) → 70/100 × 15% = 10.5
+- Portfolio: Low concentration (0), No down days (0) → 50/100 × 20% = 10.0
+- Technical: 2 golden crosses (+15), 1 accelerating (+3) → 68/100 × 25% = 17.0
+- Sector: Diversified (0) → 50/100 × 15% = 7.5
+- AI: Bullish sentiment (+15), Low risk (+10) → 75/100 × 25% = 18.75
+
+Total Score = 10.5 + 10.0 + 17.0 + 7.5 + 18.75 = 63.75/100
+Recommendation: WAIT FOR MONTHLY REBALANCE ✅
+                """, language="text")
+
+                st.markdown("---")
+                st.markdown("### Category Scores")
+
+                category_scores = result.get('category_scores', {})
+
+                # Create a table of scores
+                score_data = []
+                for category, data in category_scores.items():
+                    score_data.append({
+                        'Category': category.replace('_', ' ').title(),
+                        'Raw Score': f"{data.get('score', 0):.1f}/100",
+                        'Weight': f"{data.get('weight', 0)*100:.0f}%",
+                        'Weighted Score': f"{data.get('score', 0) * data.get('weight', 0):.1f}",
+                        'Details': data.get('details', 'N/A')
+                    })
+
+                score_df = pd.DataFrame(score_data)
+                st.dataframe(score_df, use_container_width=True, hide_index=True)
+
+                # Calculate weighted contribution
+                total_weighted = sum(d['score'] * d['weight'] for d in category_scores.values())
+                st.metric("Calculated Overall Score", f"{total_weighted:.1f}/100")
+
+                st.markdown("---")
+                st.markdown("### Raw Signal Data Sent to Optimizer")
+
+                # Show what was sent to the optimizer
+                debug_data = {
+                    'market_signals': st.session_state.get('market_signals_debug', 'Not available'),
+                    'portfolio_metrics': st.session_state.get('portfolio_metrics_debug', 'Not available'),
+                    'technical_signals': st.session_state.get('technical_signals_debug', 'Not available'),
+                    'sector_analysis': st.session_state.get('sector_analysis_debug', 'Not available'),
+                    'batch_analysis_summary': st.session_state.get('batch_analysis_debug', 'Not available')
+                }
+
+                for key, value in debug_data.items():
+                    with st.expander(f"📦 {key.replace('_', ' ').title()}", expanded=False):
+                        st.json(value)
 
             # Stock-specific actions
             if stock_actions:

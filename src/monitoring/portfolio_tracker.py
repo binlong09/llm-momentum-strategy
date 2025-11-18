@@ -31,11 +31,13 @@ class PortfolioTracker:
         self.history_dir.mkdir(parents=True, exist_ok=True)
         self.snapshots_file = self.history_dir / "portfolio_snapshots.csv"
         self.holdings_file = self.history_dir / "holdings_history.csv"
+        self.market_context_file = self.history_dir / "market_context_history.csv"
 
     def snapshot_portfolio(
         self,
         holdings_df: pd.DataFrame,
-        source: str = "manual"
+        source: str = "manual",
+        market_context: Optional[Dict] = None
     ) -> Dict:
         """
         Take a snapshot of current portfolio.
@@ -43,6 +45,7 @@ class PortfolioTracker:
         Args:
             holdings_df: DataFrame with ['symbol', 'shares', 'current_price', 'current_value']
             source: Source of data ('manual', 'robinhood', 'auto')
+            market_context: Optional market context data to save alongside snapshot
 
         Returns:
             Dictionary with snapshot data
@@ -67,6 +70,10 @@ class PortfolioTracker:
 
         # Save individual holdings
         self._save_holdings(holdings_df, timestamp)
+
+        # Save market context if provided
+        if market_context:
+            self._save_market_context(market_context, timestamp)
 
         logger.info(f"Portfolio snapshot saved: ${total_value:,.2f} ({num_holdings} holdings)")
 
@@ -98,6 +105,58 @@ class PortfolioTracker:
             combined.to_csv(self.holdings_file, index=False)
         else:
             holdings_snapshot.to_csv(self.holdings_file, index=False)
+
+    def _save_market_context(self, market_context: Dict, timestamp: datetime):
+        """Save market context data to history."""
+        regime = market_context.get('regime', {})
+
+        context_record = {
+            'timestamp': timestamp,
+            'date': timestamp.date(),
+            'regime': regime.get('regime', 'Unknown'),
+            'regime_confidence': regime.get('confidence', 0),
+            'spy_trend': regime.get('spy_trend', 'Unknown'),
+            'spy_rsi': regime.get('spy_rsi', 50),
+            'spy_above_50': regime.get('spy_above_50', False),
+            'spy_above_200': regime.get('spy_above_200', False),
+            'breadth_pct': regime.get('breadth_pct', 50),
+            'vix_level': regime.get('vix_level', None),
+            'fear_level': regime.get('fear_level', 'Unknown')
+        }
+
+        context_df = pd.DataFrame([context_record])
+
+        if self.market_context_file.exists():
+            existing = pd.read_csv(self.market_context_file)
+            # Avoid duplicates (same day)
+            existing['date'] = pd.to_datetime(existing['date']).dt.date
+            if context_record['date'] not in existing['date'].values:
+                combined = pd.concat([existing, context_df], ignore_index=True)
+                combined.to_csv(self.market_context_file, index=False)
+        else:
+            context_df.to_csv(self.market_context_file, index=False)
+
+    def get_market_context_history(self, days: int = 30) -> pd.DataFrame:
+        """
+        Get historical market context data.
+
+        Args:
+            days: Number of days to retrieve
+
+        Returns:
+            DataFrame of market context history
+        """
+        if not self.market_context_file.exists():
+            return pd.DataFrame()
+
+        df = pd.read_csv(self.market_context_file)
+        df['date'] = pd.to_datetime(df['date'])
+
+        # Filter by date range
+        cutoff = datetime.now() - timedelta(days=days)
+        df = df[df['date'] >= cutoff]
+
+        return df.sort_values('date')
 
     def get_snapshots(self, days: int = 30) -> pd.DataFrame:
         """

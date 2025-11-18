@@ -73,42 +73,81 @@ class PortfolioOptimizer:
         }
 
     def _score_market_signals(self, signals: Optional[Dict]) -> Dict:
-        """Score market-level signals (VIX, SPY, etc.)"""
+        """Score market-level signals (VIX, regime, SPY, etc.)"""
         if not signals:
             return {'score': 0, 'weight': 0.15, 'details': 'No market data'}
 
         score = 50  # Neutral
         details = []
 
+        # Market regime scoring (new!)
+        regime = signals.get('regime')
+        regime_confidence = signals.get('regime_confidence', 0)
+
+        if regime:
+            if regime == 'Bull Market':
+                score += 15
+                details.append(f"Bull Market detected ({regime_confidence}% confidence)")
+            elif regime == 'Bear Market':
+                score -= 20
+                details.append(f"Bear Market detected ({regime_confidence}% confidence) - defensive posture")
+            else:  # Neutral
+                score -= 5
+                details.append(f"Neutral market - mixed signals")
+
+        # Market breadth
+        breadth = signals.get('breadth_pct')
+        if breadth is not None:
+            if breadth > 70:
+                score += 5
+                details.append(f"Strong breadth ({breadth:.0f}%)")
+            elif breadth < 40:
+                score -= 10
+                details.append(f"Weak breadth ({breadth:.0f}%) - most stocks declining")
+
+        # SPY position relative to MAs
+        spy_above_50 = signals.get('spy_above_50')
+        spy_above_200 = signals.get('spy_above_200')
+
+        if spy_above_200 is False:
+            score -= 10
+            details.append("SPY below 200-day MA - long-term bearish")
+        elif spy_above_50 is False and spy_above_200 is True:
+            score -= 5
+            details.append("SPY below 50-day MA but above 200-day - short-term caution")
+
         # VIX scoring
         vix = signals.get('vix')
         if vix:
             if vix > 35:
                 score -= 20
-                details.append(f"VIX very high ({vix:.1f}) - extreme fear")
+                details.append(f"VIX very high ({vix:.1f}) - extreme fear, possible capitulation")
             elif vix > 25:
                 score -= 10
                 details.append(f"VIX elevated ({vix:.1f}) - heightened volatility")
             elif vix < 15:
                 score += 10
-                details.append(f"VIX low ({vix:.1f}) - calm market")
+                details.append(f"VIX low ({vix:.1f}) - calm market conditions")
+            elif vix < 12:
+                score -= 5
+                details.append(f"VIX very low ({vix:.1f}) - possible complacency risk")
 
-        # SPY trend scoring
+        # SPY trend scoring (returns)
         spy_5d = signals.get('spy_5d_return')
         spy_20d = signals.get('spy_20d_return')
 
         if spy_20d is not None:
             if spy_20d < -10:
                 score -= 15
-                details.append(f"SPY 20d: {spy_20d:+.1f}% - medium-term downtrend")
+                details.append(f"SPY 1M: {spy_20d:+.1f}% - medium-term downtrend")
             elif spy_20d > 10:
                 score += 10
-                details.append(f"SPY 20d: {spy_20d:+.1f}% - strong uptrend")
+                details.append(f"SPY 1M: {spy_20d:+.1f}% - strong uptrend")
 
         if spy_5d is not None:
             if spy_5d < -5:
                 score -= 5
-                details.append(f"SPY 5d: {spy_5d:+.1f}% - short-term pullback")
+                details.append(f"SPY 1W: {spy_5d:+.1f}% - short-term pullback")
 
         return {
             'score': max(0, min(100, score)),
