@@ -60,17 +60,55 @@ SECTOR_MAP = {
 }
 
 
-def get_sector(symbol: str) -> str:
+def get_sector(symbol: str, auto_fetch: bool = True) -> str:
     """
     Get sector for a stock symbol.
 
+    Tries in order:
+    1. Manual SECTOR_MAP (fast, predefined)
+    2. yfinance auto-fetch (slower, but works for any stock)
+    3. 'Other' as fallback
+
     Args:
         symbol: Stock ticker
+        auto_fetch: If True, automatically fetch sector from yfinance for unmapped stocks
 
     Returns:
         Sector name or 'Other'
     """
-    return SECTOR_MAP.get(symbol, 'Other')
+    # Check manual mapping first
+    if symbol in SECTOR_MAP:
+        return SECTOR_MAP[symbol]
+
+    # Auto-fetch from yfinance if enabled
+    if auto_fetch:
+        try:
+            import yfinance as yf
+            ticker = yf.Ticker(symbol)
+            info = ticker.info
+
+            # Try to get sector from info
+            sector = info.get('sector')
+            if sector:
+                # Normalize sector names to match our categories
+                sector_mapping = {
+                    'Technology': 'Technology',
+                    'Financial Services': 'Financials',
+                    'Healthcare': 'Healthcare',
+                    'Consumer Cyclical': 'Consumer Discretionary',
+                    'Consumer Defensive': 'Consumer Staples',
+                    'Industrials': 'Industrials',
+                    'Basic Materials': 'Materials',
+                    'Energy': 'Energy',
+                    'Utilities': 'Utilities',
+                    'Real Estate': 'Real Estate',
+                    'Communication Services': 'Communication Services',
+                }
+                return sector_mapping.get(sector, sector)
+        except Exception:
+            pass  # Fall through to 'Other'
+
+    return 'Other'
 
 
 def analyze_sector_concentration(holdings_df: pd.DataFrame) -> Dict:
