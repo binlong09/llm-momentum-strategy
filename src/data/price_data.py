@@ -41,8 +41,8 @@ class PriceDataFetcher:
         # Load API keys
         self.api_keys = self._load_api_keys(api_keys_path)
 
-        # Initialize Alpha Vantage
-        self.av_api_key = self.api_keys.get('alpha_vantage', {}).get('api_key')
+        # Initialize Alpha Vantage - check Streamlit secrets first, then YAML
+        self.av_api_key = self._get_alpha_vantage_key()
         if self.av_api_key and self.av_api_key != "YOUR_ALPHA_VANTAGE_KEY_HERE":
             self.ts = TimeSeries(key=self.av_api_key, output_format='pandas')
             self.av_enabled = True
@@ -64,6 +64,27 @@ class PriceDataFetcher:
         except Exception as e:
             logger.error(f"Error loading API keys: {e}")
             return {}
+
+    def _get_alpha_vantage_key(self) -> Optional[str]:
+        """
+        Get Alpha Vantage API key with priority:
+        1. Streamlit secrets (production)
+        2. YAML config file (local development)
+        """
+        # Try Streamlit secrets first (production)
+        try:
+            import streamlit as st
+            if 'alpha_vantage' in st.secrets and 'api_key' in st.secrets['alpha_vantage']:
+                logger.info("Using Alpha Vantage API key from Streamlit secrets")
+                return st.secrets['alpha_vantage']['api_key']
+        except Exception:
+            pass  # Streamlit not available or secrets not configured
+
+        # Fall back to YAML config
+        api_key = self.api_keys.get('alpha_vantage', {}).get('api_key')
+        if api_key:
+            logger.info("Using Alpha Vantage API key from config/api_keys.yaml")
+        return api_key
 
     def _get_cache_path(self, symbol: str) -> Path:
         """Get cache file path for a symbol."""

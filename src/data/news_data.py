@@ -59,8 +59,8 @@ class NewsDataFetcher:
             self.newsapi = None
             self.newsapi_enabled = False
 
-        # Alpha Vantage for news sentiment
-        self.av_api_key = self.api_keys.get('alpha_vantage', {}).get('api_key')
+        # Alpha Vantage for news sentiment - check Streamlit secrets first, then YAML
+        self.av_api_key = self._get_alpha_vantage_key()
         self.av_enabled = (
             self.av_api_key and
             self.av_api_key != "YOUR_ALPHA_VANTAGE_KEY_HERE"
@@ -82,6 +82,27 @@ class NewsDataFetcher:
         except Exception as e:
             logger.error(f"Error loading API keys: {e}")
             return {}
+
+    def _get_alpha_vantage_key(self) -> Optional[str]:
+        """
+        Get Alpha Vantage API key with priority:
+        1. Streamlit secrets (production)
+        2. YAML config file (local development)
+        """
+        # Try Streamlit secrets first (production)
+        try:
+            import streamlit as st
+            if 'alpha_vantage' in st.secrets and 'api_key' in st.secrets['alpha_vantage']:
+                logger.info("Using Alpha Vantage API key from Streamlit secrets")
+                return st.secrets['alpha_vantage']['api_key']
+        except Exception:
+            pass  # Streamlit not available or secrets not configured
+
+        # Fall back to YAML config
+        api_key = self.api_keys.get('alpha_vantage', {}).get('api_key')
+        if api_key:
+            logger.info("Using Alpha Vantage API key from config/api_keys.yaml")
+        return api_key
 
     def _get_cache_path(self, cache_key: str) -> Path:
         """Get cache file path for a given key."""
