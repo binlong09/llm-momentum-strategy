@@ -933,9 +933,13 @@ elif page == "📊 Daily Monitor":
         st.subheader("🤖 AI Portfolio Optimizer")
         st.markdown("Get a definitive rebalancing recommendation based on ALL available signals")
 
-        # Cost warning
-        estimated_cost = len(holdings_df) * 0.00066
-        st.caption(f"💰 Note: First run will analyze all stocks (~${estimated_cost:.3f} using gpt-4o-mini)")
+        # Get selected model (default to gpt-4o-mini if not set)
+        selected_model = st.session_state.get('selected_llm_model', 'gpt-4o-mini')
+
+        # Cost warning (gpt-4o costs ~15x more than gpt-4o-mini)
+        cost_per_stock = 0.00066 if selected_model == 'gpt-4o-mini' else 0.01
+        estimated_cost = len(holdings_df) * cost_per_stock
+        st.caption(f"💰 Note: First run will analyze all stocks (~${estimated_cost:.3f} using {selected_model})")
 
         if st.button("🎯 Should I Rebalance?", type="primary", use_container_width=True):
             try:
@@ -949,8 +953,9 @@ elif page == "📊 Daily Monitor":
                 if need_batch_analysis:
                     with st.spinner(f"🔬 Running AI analysis on {len(holdings_df)} stocks first... This will take ~{len(holdings_df) * 3} seconds..."):
                         dm = DataManager()
-                        llm_scorer = LLMScorer(model="gpt-4o-mini")
-                        risk_scorer = LLMRiskScorer(model="gpt-4o-mini")
+                        # Use the selected model from batch analysis (or default to gpt-4o-mini)
+                        llm_scorer = LLMScorer(model=selected_model)
+                        risk_scorer = LLMRiskScorer(model=selected_model)
 
                         # Initialize results storage
                         batch_results = []
@@ -1839,6 +1844,9 @@ Provide thoughtful, balanced advice using these signals. Reference specific data
                     dm = DataManager()
                     llm_scorer = LLMScorer(model=batch_model)
                     risk_scorer = LLMRiskScorer(model=batch_model)
+
+                    # Store model choice in session state for Portfolio Optimizer
+                    st.session_state.selected_llm_model = batch_model
 
                     # Initialize results storage
                     batch_results = []

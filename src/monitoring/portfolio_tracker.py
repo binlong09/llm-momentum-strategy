@@ -15,7 +15,8 @@ def get_default_history_dir():
     """Get default history directory based on environment."""
     # Use persistent storage on Streamlit Cloud
     if os.getenv("STREAMLIT_RUNTIME_ENV") == "cloud":
-        return "/mount/.streamlit/monitoring"
+        # Streamlit Cloud provides /mount/data for persistence
+        return "/mount/data/monitoring"
     return "results/monitoring"
 
 
